@@ -1,4 +1,5 @@
 #include "editor.h"
+#include <lvl5_stretchy_buffer.h>
 
 i32 get_gap_count(Text_Buffer *b) {
   i32 result = b->capacity - b->count;
@@ -27,6 +28,22 @@ i32 get_buffer_pos(Text_Buffer *b, i32 pos) {
 
 char get_buffer_char(Text_Buffer *b, i32 pos) {
   char result = b->data[get_buffer_pos(b, pos)];
+  return result;
+}
+
+V2 get_buffer_xy(Text_Buffer *b, i32 pos) {
+  V2 result = v2_zero();
+  
+  for (i32 char_index = 0; char_index < pos; char_index++) {
+    char buffer_char = get_buffer_char(b, char_index);
+    if (buffer_char == '\n') {
+      result.x = 0;
+      result.y++;
+    } else {
+      result.x++;
+    }
+  }
+  
   return result;
 }
 
@@ -200,15 +217,20 @@ b32 move_cursor_direction(Text_Buffer *b, os_Keycode direction) {
   return result;
 }
 
-String text_buffer_to_string(Text_Buffer *buffer) {
+String buffer_part_to_string(Text_Buffer *buffer, i32 start, i32 end) {
   String str = {0};
-  str.data = scratch_push_array(char, buffer->count);
-  str.count = buffer->count;
-  for (i32 i = 0; i < buffer->count; i++) {
-    str.data[i] = get_buffer_char(buffer, i);
+  str.count = end - start;
+  str.data = scratch_push_array(char, str.count);
+  for (i32 i = 0; i < (i32)str.count; i++) {
+    str.data[i] = get_buffer_char(buffer, start + i);
   }
   
   return str;
+}
+
+String text_buffer_to_string(Text_Buffer *buffer) {
+  String result = buffer_part_to_string(buffer, 0, buffer->count);
+  return result;
 }
 
 void buffer_copy(Text_Buffer *buffer) {
@@ -236,4 +258,377 @@ void buffer_cut(Text_Buffer *buffer) {
     count *= -1;
   }
   buffer_remove_backward(buffer, count);
+}
+
+
+Token_Type get_keyword_kind(String str) {
+  i32 result = 0;
+  for (i32 i = T_KEYWORD_FIRST; i <= T_KEYWORD_LAST; i++) {
+    String keyword_string = Token_Kind_To_String[i];
+    if (string_compare(keyword_string, str)) {
+      result = i;
+      break;
+    }
+  }
+  return result;
+}
+
+
+
+b32 is_digit(char c) {
+  b32 result = c >= '0' && c <= '9';
+  return result;
+}
+
+b32 is_alpha(char c) {
+  b32 result = (c >= 'a' && c <= 'z') ||
+    (c >= 'A' && c <= 'Z') || (c == '_');
+  return result;
+}
+
+b32 is_whitespace(char c) {
+  b32 result = c == ' ' || c == '\n' || c == '\t' || c == '\r';
+  return result;
+}
+
+
+Token *buffer_tokenize(Text_Buffer *b) {
+  Token *tokens = sb_new(Token, 1024);
+  
+  i32 line = 1;
+  i32 col = 1;
+  i32 token_start = 0;
+  
+  Token t = {0};
+  i32 i = 0;
+  
+#define get(index) get_buffer_char(b, i + index)
+  
+#define next(n) { \
+    col += n; \
+    i += n; \
+  }
+#define skip(n) { \
+    next(n); \
+    token_start += n; \
+  }
+#define eat() { \
+    next(1); \
+  }
+#define end(tok_kind) { \
+    t.line = line; \
+    t.col = col - (i - token_start); \
+    t.kind = tok_kind; \
+    t.start = token_start; \
+    t.count = i - token_start; \
+    token_start = i; \
+    sb_push(tokens, t); \
+    continue; \
+  }
+  
+#define case1(ch0, kind0) \
+  case ch0: { \
+    eat(); \
+    end(kind0); \
+  } break;
+#define case2(ch0, kind0, ch1, kind1) \
+  case ch0: { \
+    eat(); \
+    if (get(0) == ch1) { \
+      eat(); \
+      end(kind1); \
+    } else { \
+      end(kind0); \
+    } \
+  } break;
+#define case3(ch0, kind0, ch1, kind1, ch2, kind2) \
+  case ch0: { \
+    eat(); \
+    if (get(0) == ch1) { \
+      eat(); \
+      end(kind1); \
+    } else if (get(0) == ch2) { \
+      eat(); \
+      end(kind2); \
+    } else { \
+      end(kind0); \
+    } \
+  } break;
+  
+  while (true) {
+    switch (get(0)) {
+      case 0: {
+        goto end;
+      } break;
+      case ' ': {
+        eat();
+        end(T_SPACE);
+      } break;
+      case '\n': {
+        line++;
+        col = 1;
+        eat();
+        end(T_NEWLINE);
+      } break;
+      case '"': {
+        eat();
+        // TODO(lvl5): deal with escape sequences
+        while ((get(0) != '"') ||
+               (get(-1) == '\\')) {
+          eat();
+        }
+        eat();
+        end(T_STRING);
+      } break;
+      case '\'': {
+        eat();
+        eat();
+        eat();
+        end(T_CHAR);
+      } break;
+      
+      case '0': case '1': case '2': case '3': case '4':
+      case '5': case '6': case '7': case '8': case '9': {
+        eat();
+        while (is_digit(get(0))) eat();
+        
+        // float
+        if (get(0) == '.') {
+          eat();
+          //if (!is_digit((get0))) syntax_error("Unexpected symbol %c", *stream);
+          
+          while (is_digit(get(0))) eat();
+          end(T_FLOAT);
+        } else {
+          end(T_INT);
+        }
+      } break;
+      case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
+      case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
+      case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
+      case 'v': case 'w': case 'x': case 'y': case 'z':
+      
+      case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
+      case 'H': case 'I': case 'J': case 'K': case 'L': case 'M': case 'N':
+      case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U':
+      case 'V': case 'W': case 'X': case 'Y': case 'Z':
+      
+      case '_': {
+        eat();
+        while (is_digit(get(0)) || is_alpha(get(0))) eat();
+        String value = buffer_part_to_string(b, token_start, i);
+        Token_Type kind = get_keyword_kind(value);
+        if (kind) {
+          t.line = line; 
+          t.col = col - (i - token_start); 
+          t.kind = kind;
+          t.start = token_start;
+          t.count = i - token_start;
+          token_start = i; 
+          sb_push(tokens, t); 
+          continue;
+        } else {
+          end(T_NAME);
+        }
+      } break;
+      
+      case '/': {
+        if (get(1) == '/') {
+          skip(2);
+          while (get(0) != '\n') {
+            skip(1);
+          }
+        } else if (get(1) == '*') {
+          skip(2);
+          while (!(get(0) == '*' && get(1) == '/')) {
+            skip(1);
+          }
+          skip(2);
+        } else {
+          eat();
+          if (get(0) == '=') {
+            end(T_ASSIGN_SLASH);
+          } else {
+            end(T_SLASH);
+          }
+        }
+      } break;
+      
+      case '#': {
+        skip(1);
+        while (is_digit(get(0)) || is_alpha(get(0))) eat();
+        end(T_POUND);
+      } break;
+      
+      case1('\\', T_BACKSLASH);
+      case1(',', T_COMMA);
+      case1(';', T_SEMI);
+      case1('(', T_LPAREN);
+      case1(')', T_RPAREN);
+      case1('[', T_LBRACKET);
+      case1(']', T_RBRACKET);
+      case1('{', T_LCURLY);
+      case1('}', T_RCURLY);
+      case1('~', T_BIT_NOT);
+      case1(':', T_COLON);
+      
+      case2('=', T_ASSIGN, '=', T_EQUALS);
+      case2('!', T_NOT, '=', T_NOT_EQUALS);
+      case2('+', T_PLUS, '=', T_ASSIGN_PLUS);
+      case2('*', T_STAR, '=', T_ASSIGN_STAR);
+      case2('^', T_BIT_XOR, '=', T_ASSIGN_BIT_XOR);
+      case2('%', T_PERCENT, '=', T_ASSIGN_PERCENT);
+      
+      case3('-', T_MINUS, '=', T_ASSIGN_MINUS, '>', T_ARROW);
+      case3('.', T_DOT, '.', T_DOUBLE_DOT, '.', T_TRIPLE_DOT);
+      case3('>', T_GREATER, '=', T_GREATER_EQUALS, '>', T_RSHIFT);
+      case3('<', T_LESS, '=', T_LESS_EQUALS, '>', T_LSHIFT);
+      case3('|', T_BIT_OR, '|', T_OR, '=', T_ASSIGN_BIT_OR);
+      case3('&', T_BIT_AND, '&', T_AND, '=', T_ASSIGN_BIT_AND);
+      
+      default: assert(false);
+    }
+  }
+  
+  end:
+  
+  return tokens;
+}
+
+typedef struct {
+  i32 i;
+  Token *tokens;
+  String *type_table;
+  Text_Buffer *buffer;
+} Parser;
+
+
+
+i32 skip_whitespace_backward(Parser *p, i32 offset) {
+  i32 result = offset;
+  while (p->tokens[result].kind == T_SPACE  || p->tokens[result].kind == T_NEWLINE) {
+    result--;
+  }
+  return result;
+}
+
+
+i32 skip_whitespace_forward(Parser *p, i32 offset) {
+  i32 result = offset;
+  while (p->tokens[result].kind == T_SPACE  || p->tokens[result].kind == T_NEWLINE) {
+    result++;
+  }
+  return result;
+}
+
+Token *peek_token(Parser *p, i32 offset) {
+  assert(p->i + offset < (i32)sb_count(p->tokens));
+  
+  i32 index = p->i;
+  while (offset < 0) {
+    index--;
+    index = skip_whitespace_backward(p, index);
+    offset++;
+  }
+  while (offset > 0) {
+    index++;
+    index = skip_whitespace_forward(p, index);
+    offset--;
+  }
+  
+  Token *result = p->tokens + index;
+  return result;
+}
+
+void next_token(Parser *p) {
+  p->i++;
+  p->i = skip_whitespace_forward(p, p->i);
+  assert(p->i <= (i32)sb_count(p->tokens));
+}
+
+bool accept_token(Parser *p, Token_Type kind) {
+  bool result = false;
+  if (kind == peek_token(p, 0)->kind) {
+    result = true;
+    next_token(p);
+  }
+  return result;
+}
+
+void parse_typedef(Parser *p) {
+  accept_token(p, T_TYPEDEF);
+  
+  Token *t = peek_token(p, 0);
+  Token_Type kind = t->kind;
+  
+  Token *type_name = null;
+  // cheating
+  // TODO(lvl5): doesn't work with function typedefs
+  switch (kind) {
+    case T_ENUM:
+    case T_STRUCT: {
+      while (!accept_token(p, T_RCURLY)) {
+        next_token(p);
+      }
+      type_name = peek_token(p, 0);
+      next_token(p);
+    } break;
+    
+    default: {
+      while (!accept_token(p, T_SEMI)) {
+        next_token(p);
+      }
+      type_name = peek_token(p, -2);
+    } break;
+  }
+  
+  type_name->ast_kind = A_TYPE;
+  sb_push(p->type_table, buffer_part_to_string(p->buffer, type_name->start, type_name->start+type_name->count));
+}
+
+void parse_top_decl(Parser *p) {
+  Token *t = peek_token(p, 0);
+  Token_Type kind = t->kind;
+  switch (kind) {
+    case T_TYPEDEF: {
+      parse_typedef(p);
+    } break;
+    case T_NAME: {
+      for (u32 i = 0; i < sb_count(p->type_table); i++) {
+        String token_string = buffer_part_to_string(p->buffer, t->start, t->start+t->count);
+        if (string_compare(p->type_table[i], token_string)) {
+          t->ast_kind = A_TYPE;
+        }
+      }
+      next_token(p);
+    } break;
+    
+    default: next_token(p); break;
+  }
+}
+
+void parse_program(Parser *p) {
+  while (p->i < (i32)sb_count(p->tokens)) {
+    parse_top_decl(p);
+  }
+}
+
+Token *buffer_parse(Text_Buffer *b) {
+  Parser parser = {
+    .i = 0,
+    .tokens = buffer_tokenize(b),
+    .type_table = sb_new(String, 64),
+    .buffer = b,
+  };
+  sb_push(parser.type_table, const_string("void"));
+  sb_push(parser.type_table, const_string("char"));
+  sb_push(parser.type_table, const_string("int"));
+  sb_push(parser.type_table, const_string("short"));
+  sb_push(parser.type_table, const_string("float"));
+  sb_push(parser.type_table, const_string("long"));
+  sb_push(parser.type_table, const_string("double"));
+  sb_push(parser.type_table, const_string("unsigned"));
+  sb_push(parser.type_table, const_string("signed"));
+  parse_program(&parser);
+  return parser.tokens;
 }

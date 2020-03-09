@@ -88,7 +88,7 @@ void init_renderer(Renderer *r, GLuint shader, Font *font, V2 window_size) {
   r->vertex_vbo = vertex_vbo;
 }
 
-void draw_string(Renderer *r, String s, V2 pos, V4 color) {
+V2 draw_string(Renderer *r, String s, V2 pos, V4 color) {
   Font *font = r->state.font;
   V2 offset = pos;
   
@@ -140,6 +140,9 @@ void draw_string(Renderer *r, String s, V2 pos, V4 color) {
   gl.BufferData(GL_ARRAY_BUFFER, sizeof(Quad_Instance)*instance_count, instances, GL_DYNAMIC_DRAW);
   
   gl.DrawArraysInstanced(GL_TRIANGLES, 0, 6, instance_count);
+  
+  V2 result = v2_sub(offset, pos);
+  return result;
 }
 
 void draw_rect(Renderer *r, Rect2 rect, V4 color) {

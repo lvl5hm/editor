@@ -68,7 +68,7 @@ Font load_font(String file_name) {
     b32 font_added = AddFontResourceExA(to_c_string(file_name), FR_PRIVATE, 0);
     assert(font_added);
     
-    int font_height = 24;
+    int font_height = 22;
     HFONT win_font = CreateFontA(
       font_height, 0,
       0, 0,
@@ -198,9 +198,10 @@ Font load_font(String file_name) {
       font.origins[codepoint_index] = v2((f32)min_x, (f32)min_y - font_buffer_height);
       
       // space + newline have no advance by default
+      font.space_width = font.advance[(' ' - font.first_codepoint)*codepoint_count +
+          ('L' - font.first_codepoint)];
       font.advance[(' ' - font.first_codepoint)*codepoint_count +
-          ('\n' - font.first_codepoint)] = font.advance[(' ' - font.first_codepoint)*codepoint_count +
-          ('L' - font.first_codepoint)]; 
+          ('\n' - font.first_codepoint)] = font.space_width; 
     }
     
     Bitmap white_bitmap = make_empty_bitmap(2, 2);

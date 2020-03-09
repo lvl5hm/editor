@@ -4,8 +4,10 @@
 #include "renderer.c"
 #include "editor.c"
 
+
+
 os_entry_point() {
-  context_init(kilobytes(128));
+  context_init(megabytes(2));
   os_Window window = os_create_window();
   
   
@@ -26,8 +28,17 @@ os_entry_point() {
     .count = 0,
     .cursor = 0,
   };
+  
+  // TODO: all files should end with \n
   String str = const_string(
+    "typedef int i32;\n"
+    "typedef struct {\n"
+    "  int foo;\n"
+    "  char *bar;\n"
+    "} Foo;\n"
+    "\n"
     "void buffer_copy(Text_Buffer *buffer) {\n"
+    "  Foo foo = {0};\n"
     "  i32 start = min(buffer->cursor, buffer->mark);\n"
     "  i32 end = max(buffer->cursor, buffer->mark);\n"
     "  buffer->exchange_count = end - start;\n"
@@ -52,7 +63,8 @@ os_entry_point() {
     "    count *= -1;\n"
     "  }\n"
     "  buffer_remove_backward(buffer, count);\n"
-    "}\n;");
+    "}\0");
+  
   
   buffer_insert_string(&buffer, str);
   set_cursor(&buffer, 0);
@@ -67,6 +79,13 @@ os_entry_point() {
       switch (event.type) {
         case os_Event_Type_CLOSE: {
           running = false;
+        } break;
+        
+        case os_Event_Type_RESIZE: {
+          window_size = os_get_window_size(window);
+          V2i size = v2_to_v2i(window_size);
+          gl.Viewport(0, 0, size.x, size.y);
+          renderer->window_size = window_size;
         } break;
         
         default: {} break;
@@ -121,24 +140,89 @@ os_entry_point() {
     }
     
     
-    gl.ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    V4 bg_color = color_u32_to_v4(0xFF272822);
+    gl.ClearColor(bg_color.r, bg_color.b, bg_color.g, bg_color.a);
     gl.Clear(GL_COLOR_BUFFER_BIT);
     
     
-    V2 buffer_position = v2(-window_size.x*0.5f, window_size.y*0.5f);
     
     V2 cursor_p = get_screen_position_in_buffer(&font, &buffer, buffer.cursor);
+    
+    {
+      f32 cursor_line = -cursor_p.y / font.line_spacing;
+      f32 screen_height_lines = window_size.y / font.line_spacing;
+      f32 border_top = buffer.scroll_y + 4;
+      f32 border_bottom = buffer.scroll_y + screen_height_lines - 4;
+      
+      f32 want_scroll_y = 0;
+      if (cursor_line > border_bottom) {
+        want_scroll_y = cursor_line - border_bottom;
+      } else if (cursor_line < border_top && buffer.scroll_y > 0) {
+        want_scroll_y = cursor_line - border_top;
+      }
+      
+      buffer.scroll_y += want_scroll_y/4;
+    }
+    
+    V2 buffer_position = v2(-window_size.x*0.5f, 
+                            window_size.y*0.5f + buffer.scroll_y*font.line_spacing);
+    
+    
     draw_rect(renderer, 
               rect2_min_size(v2_add(buffer_position, cursor_p), v2(11, font.line_spacing)), 
               v4(0, 1, 0, 1));
     
     V2 mark_p = get_screen_position_in_buffer(&font, &buffer, buffer.mark);
     draw_rect(renderer,
-              rect2_min_size(v2_add(buffer_position, mark_p), v2(11, font.line_spacing)),
+              rect2_min_size(v2_add(buffer_position, mark_p), v2(font.space_width, font.line_spacing)),
               v4(0, 1, 0, 0.4f));
     
+    push_scratch_context(); {
+      Token *tokens = buffer_parse(&buffer);
+      
+      V2 offset = buffer_position;
+      for (i32 i = 0; i < (i32)sb_count(tokens); i++) {
+        Token t = tokens[i];
+        if (t.kind == T_NEWLINE) {
+          offset.x = buffer_position.x;
+          offset.y -= renderer->state.font->line_spacing;
+        } else if (t.kind == T_SPACE) {
+          offset.x += font.space_width;
+        } else {
+          String token_string = buffer_part_to_string(&buffer, 
+                                                      t.start, 
+                                                      t.start + t.count);
+          
+          u32 green = 0xFFA6E22E;
+          u32 color = 0xFFF8F8F2;
+          
+          if (t.ast_kind == A_TYPE) {
+            color = 0xFF66D9EF;
+          } else if (t.kind == T_STRUCT ||
+                     t.kind == T_ENUM) {
+            color = 0xFF66D9EF;
+          } else if ((t.kind >= T_KEYWORD_FIRST && t.kind <= T_KEYWORD_LAST) ||
+                     (t.kind >= T_OPERATOR_FIRST && t.kind <= T_OPERATOR_LAST)) {
+            color = 0xFFF92672;
+          } else if (t.kind == T_INT || t.kind == T_FLOAT) {
+            color = 0xFFAE81FF;
+          } else if (t.kind == T_STRING || t.kind == T_CHAR) {
+            color = 0xFFE6DB74;
+          }
+          
+          V4 color_float = color_u32_to_v4(color);
+          
+          V2 string_offset = draw_string(renderer, token_string, 
+                                         offset, color_float);
+          offset = v2_add(offset, string_offset);
+        }
+      }
+    } pop_context();
+    
+#if 0    
     String buffer_content = text_buffer_to_string(&buffer);
     draw_string(renderer, buffer_content, v2(buffer_position.x, buffer_position.y), v4(1, 1, 1, 1));
+#endif
     
     os_blit_to_screen();
   }
