@@ -7,7 +7,7 @@
 
 
 os_entry_point() {
-  context_init(megabytes(2));
+  context_init(megabytes(20));
   os_Window window = os_create_window();
   
   
@@ -29,7 +29,24 @@ os_entry_point() {
     .cursor = 0,
   };
   
-  // TODO: all files should end with \n
+  
+  String str;
+  // TODO: all files should end with \0
+  {
+    FILE *file;
+    errno_t err = fopen_s(&file, "test.c", "rb");
+    fseek(file, 0, SEEK_END);
+    i32 file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    
+    char *file_memory = alloc_array(char, file_size+1);
+    size_t read = fread(file_memory, 1, file_size, file);
+    assert(read == file_size);
+    fclose(file);
+    str = make_string(file_memory, file_size+1);
+    str.data[file_size] = 0;
+  }
+#if 0
   String str = const_string(
     "typedef int i32;\n"
     "typedef struct {\n"
@@ -64,6 +81,7 @@ os_entry_point() {
     "  }\n"
     "  buffer_remove_backward(buffer, count);\n"
     "}\0");
+#endif
   
   
   buffer_insert_string(&buffer, str);
@@ -194,9 +212,15 @@ os_entry_point() {
                                                       t.start + t.count);
           
           u32 green = 0xFFA6E22E;
+          u32 orange = 0xFFFD911F;
+          
           u32 color = 0xFFF8F8F2;
           
-          if (t.ast_kind == A_TYPE) {
+          if (t.ast_kind == A_ARGUMENT) {
+            color = orange;
+          } else if (t.ast_kind == A_FUNCTION) {
+            color = green;
+          } else if (t.ast_kind == A_TYPE) {
             color = 0xFF66D9EF;
           } else if (t.kind == T_STRUCT ||
                      t.kind == T_ENUM) {

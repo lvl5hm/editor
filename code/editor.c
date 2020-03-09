@@ -499,6 +499,7 @@ typedef struct {
   i32 i;
   Token *tokens;
   String *type_table;
+  String *function_table;
   Text_Buffer *buffer;
 } Parser;
 
@@ -555,35 +556,103 @@ bool accept_token(Parser *p, Token_Type kind) {
   return result;
 }
 
-void parse_typedef(Parser *p) {
-  accept_token(p, T_TYPEDEF);
+// NOTE: secretly mutates token ast_type!!!
+bool token_is_type(Parser *p, Token *t) {
+  bool result = false;
+  for (u32 i = 0; i < sb_count(p->type_table); i++) {
+    String token_string = buffer_part_to_string(p->buffer, t->start, t->start+t->count);
+    if (string_compare(p->type_table[i], token_string)) {
+      t->ast_kind = A_TYPE;
+      result = true;
+      break;
+    }
+  }
+  return result;
+}
+bool token_is_function(Parser *p, Token *t) {
+  bool result = false;
+  for (u32 i = 0; i < sb_count(p->function_table); i++) {
+    String token_string = buffer_part_to_string(p->buffer, t->start, t->start+t->count);
+    if (string_compare(p->function_table[i], token_string)) {
+      t->ast_kind = A_FUNCTION;
+      result = true;
+      break;
+    }
+  }
+  return result;
+}
+
+void parse_type(Parser*);
+
+void parse_name(Parser *p) {
+  Token *t = peek_token(p, 0);
   
+  token_is_type(p, t);
+  token_is_function(p, t);
+  
+  next_token(p);
+}
+
+void parse_type_prefix(Parser *p) {
   Token *t = peek_token(p, 0);
   Token_Type kind = t->kind;
   
-  Token *type_name = null;
-  // cheating
-  // TODO(lvl5): doesn't work with function typedefs
   switch (kind) {
     case T_ENUM:
     case T_STRUCT: {
+      next_token(p); // struct
+      parse_name(p); // Foo
+      accept_token(p, T_LCURLY);
+      
       while (!accept_token(p, T_RCURLY)) {
-        next_token(p);
+        parse_type_prefix(p);
+        parse_name(p);
+        accept_token(p, T_SEMI);
       }
-      type_name = peek_token(p, 0);
-      next_token(p);
+    } break;
+    
+    case T_NAME: {
+      token_is_type(p, t);
+      accept_token(p, T_NAME);
+      if (accept_token(p, T_STAR)) {
+        while (accept_token(p, T_STAR)) {
+          
+        }
+        
+      }
     } break;
     
     default: {
-      while (!accept_token(p, T_SEMI)) {
-        next_token(p);
-      }
-      type_name = peek_token(p, -2);
+      next_token(p);
     } break;
   }
+}
+
+void parse_typedef(Parser *p) {
+  accept_token(p, T_TYPEDEF);
+  parse_type_prefix(p);
+  
+  Token *type_name = peek_token(p, 0);
+  next_token(p);
   
   type_name->ast_kind = A_TYPE;
   sb_push(p->type_table, buffer_part_to_string(p->buffer, type_name->start, type_name->start+type_name->count));
+}
+
+void parse_statement(Parser *p) {
+  while (!accept_token(p, T_SEMI)) {
+    Token *t = peek_token(p, 0);
+    Token_Type kind = t->kind;
+    switch (kind) {
+      case T_NAME: {
+        parse_name(p);
+      } break;
+      
+      default: {
+        next_token(p);
+      } break;
+    }
+  }
 }
 
 void parse_top_decl(Parser *p) {
@@ -594,13 +663,32 @@ void parse_top_decl(Parser *p) {
       parse_typedef(p);
     } break;
     case T_NAME: {
-      for (u32 i = 0; i < sb_count(p->type_table); i++) {
-        String token_string = buffer_part_to_string(p->buffer, t->start, t->start+t->count);
-        if (string_compare(p->type_table[i], token_string)) {
-          t->ast_kind = A_TYPE;
+      parse_type_prefix(p);
+      
+      Token *name = peek_token(p, 0);
+      accept_token(p, T_NAME);
+      if (accept_token(p, T_LPAREN)) {
+        // function decl 
+        
+        name->ast_kind = A_FUNCTION;
+        sb_push(p->function_table, 
+                buffer_part_to_string(p->buffer, name->start, name->start+name->count));
+        
+        while (!accept_token(p, T_RPAREN)) {
+          parse_type_prefix(p);
+          
+          Token *arg = peek_token(p, 0);
+          arg->ast_kind = A_ARGUMENT;
+          accept_token(p, T_NAME);
         }
+        accept_token(p, T_LCURLY);
+        
+        while (!accept_token(p, T_RCURLY)) {
+          parse_statement(p);
+        }
+      } else {
+        // regular variable
       }
-      next_token(p);
     } break;
     
     default: next_token(p); break;
@@ -618,6 +706,7 @@ Token *buffer_parse(Text_Buffer *b) {
     .i = 0,
     .tokens = buffer_tokenize(b),
     .type_table = sb_new(String, 64),
+    .function_table = sb_new(String, 64),
     .buffer = b,
   };
   sb_push(parser.type_table, const_string("void"));
