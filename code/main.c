@@ -87,6 +87,11 @@ os_entry_point() {
   buffer_insert_string(&buffer, str);
   set_cursor(&buffer, 0);
   
+  i32 thing = get_buffer_pos(&buffer, 20);
+  if (thing > 40) {
+    OutputDebugStringA("fdsff");
+  }
+  
   b32 running = true;
   while (running) {
     scratch_reset();

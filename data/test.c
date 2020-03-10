@@ -1,6 +1,6 @@
 void buffer_paste(Text_Buffer *buffer) {
-  String str = make_string(buffer->exchange, buffer->exchange_count);
   buffer_insert_string(buffer, str);
+  String str = make_string(buffer->exchange, buffer->exchange_count);
 }
 
 void buffer_cut(Text_Buffer *buffer) {
