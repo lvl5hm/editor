@@ -374,16 +374,32 @@ Token *buffer_tokenize(Text_Buffer *b) {
       case '"': {
         eat();
         // TODO(lvl5): deal with escape sequences
-        while ((get(0) != '"') ||
-               (get(-1) == '\\')) {
-          eat();
+        while (true) {
+          if (get(0) == '\\') {
+            eat();
+            eat();
+          } else if (get(0) == '\"') {
+            break;
+          } else {
+            eat();
+          }
         }
         eat();
         end(T_STRING);
       } break;
       case '\'': {
         eat();
-        eat();
+        
+        while (true) {
+          if (get(0) == '\\') {
+            eat();
+            eat();
+          } else if (get(0) == '\'') {
+            break;
+          } else {
+            eat();
+          }
+        }
         eat();
         end(T_CHAR);
       } break;
@@ -456,7 +472,7 @@ Token *buffer_tokenize(Text_Buffer *b) {
       } break;
       
       case '#': {
-        skip(1);
+        eat();
         while (is_digit(get(0)) || is_alpha(get(0))) eat();
         end(T_POUND);
       } break;
@@ -557,216 +573,75 @@ bool accept_token(Parser *p, Token_Type kind) {
   return result;
 }
 
-// NOTE: secretly mutates token ast_type!!!
-bool token_is_type(Parser *p, Token *t) {
-  bool result = false;
-  for (u32 i = 0; i < sb_count(p->type_table); i++) {
-    String token_string = buffer_part_to_string(p->buffer, t->start, t->start+t->count);
-    if (string_compare(p->type_table[i], token_string)) {
-      t->ast_kind = A_TYPE;
-      result = true;
-      break;
-    }
-  }
-  return result;
-}
-bool token_is_function(Parser *p, Token *t) {
-  bool result = false;
-  for (u32 i = 0; i < sb_count(p->function_table); i++) {
-    String token_string = buffer_part_to_string(p->buffer, t->start, t->start+t->count);
-    if (string_compare(p->function_table[i], token_string)) {
-      t->ast_kind = A_FUNCTION;
-      result = true;
-      break;
-    }
-  }
-  return result;
-}
-
-void parse_type(Parser*);
-
-bool parse_name(Parser *p) {
+void parse_type_extra(Parser *p) {
+  i32 saved = p->i;
+  
   Token *t = peek_token(p, 0);
   
-  token_is_type(p, t);
-  token_is_function(p, t);
-  
-  if (accept_token(p, T_NAME)) {
-    if (peek_token(p, 0)->kind == T_LPAREN) {
-      t->ast_kind = A_FUNCTION;
-    }
-    
-    return true;
-  }
-  
-  next_token(p);
-  return false;
-}
-
-bool parse_type_prefix(Parser *p, bool know_that_type) {
-  Token *t = peek_token(p, 0);
-  Token_Type kind = t->kind;
-  bool result = false;
-  
-  switch (kind) {
+  switch (t->kind) {
     case T_ENUM:
     case T_STRUCT: {
       next_token(p); // struct
-      parse_name(p); // Foo
+      
+      Token *struct_name = peek_token(p, 0);
+      struct_name->ast_kind = A_TYPE;
+      
+      accept_token(p, T_NAME);
       accept_token(p, T_LCURLY);
       
       while (!accept_token(p, T_RCURLY)) {
-        parse_type_prefix(p, true);
-        parse_name(p);
+        parse_type_extra(p);
         accept_token(p, T_SEMI);
       }
       
-      result = true;
+      while (!accept_token(p, T_SEMI)) {
+        if (accept_token(p, T_NAME)) {
+          Token *type_name = peek_token(p, -1);
+          type_name->ast_kind = A_TYPE;
+        } else {
+          next_token(p);
+        }
+      }
     } break;
     
     case T_NAME: {
-      token_is_type(p, t);
-      
-      if (know_that_type) {
-        Token *name = peek_token(p, 0);
-        name->ast_kind = A_TYPE;
-      }
+      Token *type_name = peek_token(p, 0);
       accept_token(p, T_NAME);
-      while (accept_token(p, T_STAR)) {
-      }
-      
-      result = true;
-    } break;
-  }
-  
-  return result;
-}
-
-void parse_type_postfix(Parser *p) {
-  
-}
-
-void parse_typedef(Parser *p) {
-  accept_token(p, T_TYPEDEF);
-  parse_type_prefix(p, true);
-  
-  Token *type_name = peek_token(p, 0);
-  next_token(p);
-  
-  type_name->ast_kind = A_TYPE;
-  sb_push(p->type_table, buffer_part_to_string(p->buffer, type_name->start, type_name->start+type_name->count));
-}
-
-void parse_statement(Parser *p) {
-  Token *t = peek_token(p, 0);
-  Token_Type kind = t->kind;
-  switch (kind) {
-    case T_NAME: {
-      i32 saved = p->i;
-      if (parse_type_prefix(p, false) &&
-          accept_token(p, T_NAME)) {
-        // declaration
-        p->i = saved;
-        parse_type_prefix(p, true);
-        parse_name(p);
-        parse_type_postfix(p);
+      if (accept_token(p, T_LPAREN)) {
+        // function call
+        type_name->ast_kind = A_FUNCTION;
+        type_name = null;
       } else {
-        p->i = saved;
-        parse_name(p);
+        while (accept_token(p, T_STAR)) {
+        }
       }
       
-      if (accept_token(p, T_ASSIGN)) {
-        while (!accept_token(p, T_SEMI)) {
-          if (parse_name(p)) {
-            
+      if (type_name) {
+        Token *decl_name = peek_token(p, 0);
+        if (accept_token(p, T_NAME)) {
+          if (accept_token(p, T_LPAREN)) {
+            decl_name->ast_kind = A_FUNCTION;
+            type_name->ast_kind = A_TYPE;
+          } else if (accept_token(p, T_SEMI) || 
+                     accept_token(p, T_ASSIGN) || 
+                     accept_token(p, T_COMMA) ||
+                     accept_token(p, T_RPAREN)) {
+            type_name->ast_kind = A_TYPE;
           }
         }
-      } else {
-        accept_token(p, T_SEMI);
       }
-    } break;
-    case T_LCURLY: {
-      next_token(p);
-      while (!accept_token(p, T_RCURLY)) {
-        parse_statement(p);
-      }
-    } break;
-    case T_IF: {
-      next_token(p);
-      accept_token(p, T_LPAREN);
-      while (!accept_token(p, T_RPAREN)) {
-        parse_name(p);
-      }
-      parse_statement(p);
-    } break;
-    
-    case T_FOR: {
-      next_token(p);
-      accept_token(p, T_LPAREN);
-      while (!accept_token(p, T_RPAREN)) {
-        parse_name(p);
-      }
-      parse_statement(p);
     } break;
     
     default: {
       next_token(p);
     } break;
   }
-}
-
-void parse_top_decl(Parser *p) {
-  Token *t = peek_token(p, 0);
-  Token_Type kind = t->kind;
-  switch (kind) {
-    case T_TYPEDEF: {
-      parse_typedef(p);
-    } break;
-    case T_NAME: {
-      parse_type_prefix(p, true);
-      
-      Token *name = peek_token(p, 0);
-      accept_token(p, T_NAME);
-      if (accept_token(p, T_LPAREN)) {
-        // function signature
-        
-        name->ast_kind = A_FUNCTION;
-        
-        while (!accept_token(p, T_RPAREN)) {
-          parse_type_prefix(p, true);
-          
-          Token *arg = peek_token(p, 0);
-          arg->ast_kind = A_ARGUMENT;
-          accept_token(p, T_NAME);
-          
-          parse_type_postfix(p);
-          accept_token(p, T_COMMA);
-        }
-        
-        // function body
-        if (accept_token(p, T_LCURLY)) {
-          while (!accept_token(p, T_RCURLY)) {
-            parse_statement(p);
-          }
-        } else {
-          accept_token(p, T_SEMI);
-        }
-        
-        sb_push(p->function_table, token_to_string(p->buffer, name));
-      } else {
-        // regular variable
-        parse_type_postfix(p);
-        accept_token(p, T_SEMI);
-      }
-    } break;
-    
-    default: next_token(p); break;
-  }
+  
 }
 
 void parse_program(Parser *p) {
   while (p->i < (i32)sb_count(p->tokens)) {
-    parse_top_decl(p);
+    parse_type_extra(p);
   }
 }
 

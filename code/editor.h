@@ -8,6 +8,7 @@ typedef enum {
   
   T_TYPEDEF,
   T_KEYWORD_FIRST = T_TYPEDEF,
+  T_POUND,
   T_IF,
   T_FOR,
   T_WHILE,
@@ -22,6 +23,8 @@ typedef enum {
   T_STRUCT,
   T_ENUM,
   
+  T_INLINE,
+  T_STATIC,
   T_CONTINUE,
   T_KEYWORD_LAST = T_CONTINUE,
   
@@ -80,8 +83,7 @@ typedef enum {
   T_ASSIGN_PERCENT,
   T_ASSIGN_BIT_XOR,
   
-  T_POUND,
-  T_OPERATOR_LAST = T_POUND,
+  T_OPERATOR_LAST = T_ASSIGN_BIT_XOR,
   
   T_NAME,
   T_INT,
@@ -96,6 +98,8 @@ typedef enum {
 #define arr_string(chars) {chars, array_count(chars)-1}
 
 String Token_Kind_To_String[] = {
+  [T_INLINE] = arr_string("inline"),
+  [T_STATIC] = arr_string("static"),
   [T_RETURN] = arr_string("return"),
   [T_BREAK] = arr_string("break"),
   [T_STRUCT] = arr_string("struct"),
@@ -106,6 +110,9 @@ String Token_Kind_To_String[] = {
   [T_CONTINUE] = arr_string("continue"),
   [T_WHILE] = arr_string("while"),
   [T_TYPEDEF] = arr_string("typedef"),
+  [T_SWITCH] = arr_string("switch"),
+  [T_CASE] = arr_string("case"),
+  [T_DEFAULT] = arr_string("default"),
   
   [T_NONE] = arr_string("NONE"),
   [T_NAME] = arr_string("NAME"),

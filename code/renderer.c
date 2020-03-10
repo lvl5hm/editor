@@ -99,6 +99,9 @@ V2 draw_string(Renderer *r, String s, V2 pos, V4 color) {
   V3 scale = v3(2/r->window_size.x, 2/r->window_size.y, 1);
   
   for (u32 char_index = 0; char_index < s.count; char_index++) {
+    if (s.data[char_index] == '#') {
+      int brk = 32;
+    }
     char first = s.data[char_index] - font->first_codepoint;
     if (s.data[char_index] == '\n') {
       offset.x = pos.x;
