@@ -22,6 +22,12 @@ typedef enum {
   
   T_STRUCT,
   T_ENUM,
+  T_UNION,
+  T_EXTERN,
+  T_AUTO,
+  T_REGISTER,
+  T_CONST,
+  T_VOLATILE,
   
   T_INLINE,
   T_STATIC,
@@ -98,6 +104,13 @@ typedef enum {
 #define arr_string(chars) {chars, array_count(chars)-1}
 
 String Token_Kind_To_String[] = {
+  [T_UNION] = arr_string("union"),
+  [T_EXTERN] = arr_string("extern"),
+  [T_AUTO] = arr_string("auto"),
+  [T_REGISTER] = arr_string("register"),
+  [T_CONST] = arr_string("const"),
+  [T_VOLATILE] = arr_string("volatile"),
+  
   [T_INLINE] = arr_string("inline"),
   [T_STATIC] = arr_string("static"),
   [T_RETURN] = arr_string("return"),

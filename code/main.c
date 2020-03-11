@@ -156,7 +156,9 @@ os_entry_point() {
             buffer_remove_backward(&buffer, 2);
           }
         }
-        if (str.data[0] != '\b' && str.data[0] != '\r') {
+        if (str.data[0] != '\t' && 
+            str.data[0] != '\b' && 
+            str.data[0] != '\r') {
           buffer_insert_string(&buffer, str);
         }
       }
@@ -196,6 +198,14 @@ os_entry_point() {
         if (buffer.cursor < buffer.count - 1) {
           buffer_remove_forward(&buffer, 1);
         }
+      }
+      if (input.keys[os_Keycode_TAB].pressed) {
+        String indent_str = make_string(scratch_push_array(char, 2), 2);
+        for (i32 i = 0; i < (i32)indent_str.count; i++) {
+          indent_str.data[i] = ' ';
+        }
+        
+        buffer_insert_string(&buffer, indent_str);
       }
     }
     
@@ -264,11 +274,10 @@ os_entry_point() {
             color = green;
           } else if (t.ast_kind == A_TYPE) {
             color = 0xFF66D9EF;
-          } else if (t.kind == T_STRUCT ||
-                     t.kind == T_ENUM) {
-            color = 0xFF66D9EF;
-          } else if ((t.kind >= T_KEYWORD_FIRST && t.kind <= T_KEYWORD_LAST) ||
-                     (t.kind >= T_OPERATOR_FIRST && t.kind <= T_OPERATOR_LAST)) {
+          }else if ((t.kind >= T_KEYWORD_FIRST && 
+                     t.kind <= T_KEYWORD_LAST) ||
+                    (t.kind >= T_OPERATOR_FIRST && 
+                     t.kind <= T_OPERATOR_LAST)) {
             color = 0xFFF92672;
           } else if (t.kind == T_INT || t.kind == T_FLOAT) {
             color = 0xFFAE81FF;

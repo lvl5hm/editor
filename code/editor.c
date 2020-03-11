@@ -380,6 +380,10 @@ Token *buffer_tokenize(Text_Buffer *b) {
             eat();
           } else if (get(0) == '\"') {
             break;
+          } else if (get(0) == '\n') {
+            break;
+          } else if (get(0) == '\0') {
+            goto end;
           } else {
             eat();
           }
@@ -396,6 +400,8 @@ Token *buffer_tokenize(Text_Buffer *b) {
             eat();
           } else if (get(0) == '\'') {
             break;
+          } else if (get(0) == '\0') {
+            goto end;
           } else {
             eat();
           }
@@ -513,13 +519,29 @@ Token *buffer_tokenize(Text_Buffer *b) {
 }
 
 typedef struct {
+  String name;
+  Ast_Type kind;
+} Symbol;
+
+typedef struct {
   i32 i;
   Token *tokens;
-  String *type_table;
-  String *function_table;
   Text_Buffer *buffer;
+  Symbol *symbols;
 } Parser;
 
+
+Symbol *get_symbol(Parser *p, Token *t) {
+  Symbol *result = null;
+  for (u32 i = 0; i < sb_count(p->symbols); i++) {
+    Symbol *s = p->symbols + i;
+    if (string_compare(s->name, token_to_string(p->buffer, t))) {
+      result = s;
+      break;
+    }
+  }
+  return result;
+}
 
 
 i32 skip_whitespace_backward(Parser *p, i32 offset) {
@@ -573,75 +595,268 @@ bool accept_token(Parser *p, Token_Type kind) {
   return result;
 }
 
-void parse_type_extra(Parser *p) {
-  i32 saved = p->i;
-  
+
+
+
+
+
+void add_type(Parser *p, String name) {
+  Symbol s = (Symbol){ .name = name, .kind = A_TYPE };
+  sb_push(p->symbols, s);
+}
+
+void add_function(Parser *p, String name) {
+  Symbol s = (Symbol){ .name = name, .kind = A_FUNCTION };
+  sb_push(p->symbols, s);
+}
+
+
+
+void parse_directive(Parser *p) {
   Token *t = peek_token(p, 0);
   
-  switch (t->kind) {
-    case T_ENUM:
-    case T_STRUCT: {
-      next_token(p); // struct
-      
-      Token *struct_name = peek_token(p, 0);
+  if (t->kind == T_POUND &&string_compare(token_to_string(p->buffer, t), const_string("#include"))) {
+    next_token(p);
+    
+    t = peek_token(p, 0);
+    if (t->kind == T_LESS) {
+      t->kind = T_STRING;
+      while (peek_token(p, 0)->kind != T_GREATER) {
+        t = peek_token(p, 0);
+        t->kind = T_STRING;
+        next_token(p);
+      }
+      t = peek_token(p, 0);
+      t->kind = T_STRING;
+      next_token(p);
+    } else {
+      next_token(p);
+    }
+  } else {
+    next_token(p);
+  }
+}
+
+
+void match_brace(Parser *p, Token_Type left, Token_Type right) {
+  i32 count = 0;
+  while (true) {
+    if (accept_token(p, right)) {
+      if (count == 0) {
+        return;
+      } else {
+        count--;
+      }
+    } else if (accept_token(p, left)) {
+      count++;
+    } else {
+      next_token(p);
+    }
+  }
+}
+
+
+// top_decl = function
+//          | decl
+// function = {decl_specifier} declarator block_statement
+//
+
+// decl = {decl_specifier}+ {init_declarator} ;
+// decl_specifier = storage_class
+//                | type_specifier
+//                | type_qualifier
+// storage_class = auto|register|static|extern|typedef
+// type_specifier = name
+//                | struct_specifier
+//                | enum_spiecifier
+// type_qualifier = const|volatile
+
+// struct_specifier = struct|union [name] [{ {struct_decl} }]
+// struct_decl = {type_specifier|type_qualifier} {declarator, ...}
+//
+// init_declarator = declarator
+//                 | declarator = initializer
+// initializer = assignment_expression
+//             | {initializer, ...}
+// declarator = [*] direct_declarator
+// direct_declarator = name
+//                   | (declarator)
+//                   | direct_declarator "["[constant]"]"
+//                   | direct_declarator (params)
+//                   | direct_declarator ( {identifier} )
+
+
+Token *parse_declarator(Parser *, bool);
+
+Token *parse_direct_declarator(Parser *p, bool is_typedef) {
+  Token *result = null;
+  
+  if (accept_token(p, T_NAME)) {
+    result = peek_token(p, -1);
+    
+    if (is_typedef) {
+      // token_to_string is scratch
+      add_type(p, token_to_string(p->buffer, result));
+      result->ast_kind = A_TYPE;
+    }
+  } else if (accept_token(p, T_LPAREN)) {
+    result = parse_declarator(p, is_typedef);
+    accept_token(p, T_RPAREN);
+  }
+  
+  if (accept_token(p, T_LBRACKET)) {
+    match_brace(p, T_LBRACKET, T_RBRACKET);
+  } else if (accept_token(p, T_LPAREN)) {
+    // function decl
+    if (!is_typedef) {
+      result->ast_kind = A_FUNCTION;
+      add_function(p, token_to_string(p->buffer, result));
+    }
+    match_brace(p, T_LPAREN, T_RPAREN);
+  }
+  
+  return result;
+}
+
+Token *parse_declarator(Parser *p, bool is_typedef) {
+  accept_token(p, T_STAR);
+  return parse_direct_declarator(p, is_typedef);
+} 
+
+
+void parse_misc(Parser *p) {
+  Token *t = peek_token(p, 0);
+  if (t->kind == T_NAME) {
+    Symbol *s = get_symbol(p, t);
+    if (s && s->kind == A_FUNCTION) {
+      t->ast_kind = A_FUNCTION;
+    }
+  }
+  next_token(p);
+}
+
+
+bool parse_initializer(Parser *p) {
+  while (!accept_token(p, T_SEMI)) {
+    parse_misc(p);
+  }
+  return true;
+}
+
+bool parse_init_declarator(Parser *p, bool is_typedef) {
+  bool result = false;
+  if (parse_declarator(p, is_typedef)) {
+    if (accept_token(p, T_ASSIGN)) {
+      if (parse_initializer(p)) {
+        result = true;
+      }
+    } else {
+      result = true;
+    }
+  }
+  return result;
+}
+
+bool parse_struct_specifier(Parser *p) {
+  bool result = false;
+  
+  Mem_Size mark = scratch_get_mark();
+  if (accept_token(p, T_STRUCT) || accept_token(p, T_UNION)) {
+    if (accept_token(p, T_NAME)) {
+      Token *struct_name = peek_token(p, -1);
       struct_name->ast_kind = A_TYPE;
+      // token_to_string is scratch
+      add_type(p, token_to_string(p->buffer, struct_name));
       
-      accept_token(p, T_NAME);
-      accept_token(p, T_LCURLY);
-      
-      while (!accept_token(p, T_RCURLY)) {
-        parse_type_extra(p);
-        accept_token(p, T_SEMI);
+      if (accept_token(p, T_LCURLY)) {
+        match_brace(p, T_LCURLY, T_RCURLY);
       }
       
-      while (!accept_token(p, T_SEMI)) {
-        if (accept_token(p, T_NAME)) {
-          Token *type_name = peek_token(p, -1);
-          type_name->ast_kind = A_TYPE;
-        } else {
-          next_token(p);
-        }
-      }
+      result = true;
+    } else if (accept_token(p, T_LCURLY)) {
+      match_brace(p, T_LCURLY, T_RCURLY);
+      result = true;
+    } else {
+      result = false;
+    }
+  }
+  
+  scratch_set_mark(mark);
+  return result;
+}
+
+bool parse_typename(Parser *p) {
+  Token *t = peek_token(p, 0);
+  Symbol *s = get_symbol(p, t);
+  if (s && s->kind == A_TYPE) {
+    t->ast_kind = A_TYPE;
+    next_token(p);
+    return true;
+  }
+  return false;
+}
+
+bool parse_decl_specifier(Parser *p) {
+  Token *t = peek_token(p, 0);
+  switch (t->kind) {
+    case T_STATIC:
+    case T_TYPEDEF:
+    case T_EXTERN:
+    case T_AUTO:
+    case T_REGISTER:
+    
+    case T_INLINE:
+    case T_CONST: 
+    case T_VOLATILE: {
+      next_token(p);
+      return true;
     } break;
     
     case T_NAME: {
-      Token *type_name = peek_token(p, 0);
-      accept_token(p, T_NAME);
-      if (accept_token(p, T_LPAREN)) {
-        // function call
-        type_name->ast_kind = A_FUNCTION;
-        type_name = null;
-      } else {
-        while (accept_token(p, T_STAR)) {
-        }
-      }
-      
-      if (type_name) {
-        Token *decl_name = peek_token(p, 0);
-        if (accept_token(p, T_NAME)) {
-          if (accept_token(p, T_LPAREN)) {
-            decl_name->ast_kind = A_FUNCTION;
-            type_name->ast_kind = A_TYPE;
-          } else if (accept_token(p, T_SEMI) || 
-                     accept_token(p, T_ASSIGN) || 
-                     accept_token(p, T_COMMA) ||
-                     accept_token(p, T_RPAREN)) {
-            type_name->ast_kind = A_TYPE;
-          }
-        }
-      }
+      return parse_typename(p);
     } break;
     
-    default: {
-      next_token(p);
+    case T_STRUCT:
+    case T_UNION: {
+      return parse_struct_specifier(p);
     } break;
+    
+#if 0    
+    case T_ENUM: {
+      return parse_enum_specifier(p);
+    } break;
+#endif
+  }
+  return false;
+}
+
+bool parse_decl(Parser *p) {
+  i32 saved = p->i;
+  
+  bool is_typedef = false;
+  if (parse_decl_specifier(p)) {
+    if (peek_token(p, -1)->kind == T_TYPEDEF) {
+      is_typedef = true;
+    }
+    while (parse_decl_specifier(p));
+    do {
+      parse_init_declarator(p, is_typedef);
+    } while (accept_token(p, T_COMMA));
+    accept_token(p, T_SEMI);
+    return true;
   }
   
+  p->i = saved;
+  return false;
 }
 
 void parse_program(Parser *p) {
   while (p->i < (i32)sb_count(p->tokens)) {
-    parse_type_extra(p);
+    if (parse_decl(p)) {
+      
+    } else {
+      parse_misc(p);
+    }
   }
 }
 
@@ -649,19 +864,22 @@ Token *buffer_parse(Text_Buffer *b) {
   Parser parser = {
     .i = 0,
     .tokens = buffer_tokenize(b),
-    .type_table = sb_new(String, 64),
-    .function_table = sb_new(String, 64),
     .buffer = b,
+    .symbols = sb_new(Symbol, 32),
   };
-  sb_push(parser.type_table, const_string("void"));
-  sb_push(parser.type_table, const_string("char"));
-  sb_push(parser.type_table, const_string("int"));
-  sb_push(parser.type_table, const_string("short"));
-  sb_push(parser.type_table, const_string("float"));
-  sb_push(parser.type_table, const_string("long"));
-  sb_push(parser.type_table, const_string("double"));
-  sb_push(parser.type_table, const_string("unsigned"));
-  sb_push(parser.type_table, const_string("signed"));
+  Parser *p = &parser;
+  add_type(p, const_string("char"));
+  add_type(p, const_string("void"));
+  add_type(p, const_string("short"));
+  add_type(p, const_string("int"));
+  add_type(p, const_string("long"));
+  add_type(p, const_string("float"));
+  add_type(p, const_string("double"));
+  
+  add_type(p, const_string("String"));
+  add_type(p, const_string("V2"));
+  add_type(p, const_string("i32"));
+  
   parse_program(&parser);
   return parser.tokens;
 }

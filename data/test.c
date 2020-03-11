@@ -1,10 +1,8 @@
-#include "editor.h"
-#include <lvl5_stretchy_buffer.h>
+
 
 inline i32 get_gap_count(Text_Buffer *b) {
-  i32 result = b->capacity - b->count;
-  return result;
 }
+
 
 inline i32 get_gap_start(Text_Buffer *b) {
   i32 gap_count = get_gap_count(b);
@@ -12,6 +10,21 @@ inline i32 get_gap_start(Text_Buffer *b) {
   assert(result <= b->capacity - gap_count);
   return result;
 }
+
+
+typedef struct TheFoo {
+  int bar;
+} Foo;
+
+Foo (*foo)(int *) = 0;
+
+#include "editor.h"
+#include <lvl5_stretchy_buffer.h>
+
+
+
+
+
 
 inline i32 get_buffer_pos(Text_Buffer *b, i32 pos) {
   i32 gap_start = get_gap_start(b);
