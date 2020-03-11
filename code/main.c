@@ -217,10 +217,9 @@ os_entry_point() {
     
     
     V2 cursor_p = get_screen_position_in_buffer(&font, &buffer, buffer.cursor);
-    
+    f32 screen_height_lines = window_size.y / font.line_spacing;
     {
       f32 cursor_line = -cursor_p.y / font.line_spacing;
-      f32 screen_height_lines = window_size.y / font.line_spacing;
       f32 border_top = buffer.scroll_y + 4;
       f32 border_bottom = buffer.scroll_y + screen_height_lines - 4;
       
@@ -234,8 +233,12 @@ os_entry_point() {
       buffer.scroll_y += want_scroll_y/4;
     }
     
-    V2 buffer_position = v2(-window_size.x*0.5f, 
-                            window_size.y*0.5f + buffer.scroll_y*font.line_spacing);
+    V2 top_left = v2(-window_size.x*0.5f, 
+                     window_size.y*0.5f);
+    
+    
+    V2 buffer_position = v2_add(top_left,
+                                v2(0, (buffer.scroll_y-1)*font.line_spacing));
     
     
     draw_rect(renderer, 
@@ -247,25 +250,48 @@ os_entry_point() {
               rect2_min_size(v2_add(buffer_position, mark_p), v2(font.space_width, font.line_spacing)),
               v4(0, 1, 0, 0.4f));
     
+    
+    
+    u32 green = 0xFFA6E22E;
+    u32 orange = 0xFFFD911F;
+    
+    
+    i32 first_visible_line = (i32)buffer.scroll_y;
+    i32 last_visible_line = (i32)(buffer.scroll_y + screen_height_lines);
+    
     push_scratch_context(); {
       Token *tokens = buffer_parse(&buffer);
       
       V2 offset = buffer_position;
-      for (i32 i = 0; i < (i32)sb_count(tokens); i++) {
+      
+      i32 token_count = (i32)sb_count(tokens);
+      
+      i32 line_index = 0;
+      i32 first_visible_token = 0;
+      while (first_visible_line > line_index) {
+        Token t = tokens[first_visible_token++];
+        if (t.kind == T_NEWLINE) {
+          line_index++;
+        }
+      }
+      
+      offset.y -= renderer->state.font->line_spacing*(f32)line_index;
+      
+      for (i32 i = first_visible_token; i < token_count; i++) {
         Token t = tokens[i];
         if (t.kind == T_NEWLINE) {
           offset.x = buffer_position.x;
           offset.y -= renderer->state.font->line_spacing;
+          line_index++;
+          if (line_index > last_visible_line) {
+            break;
+          }
         } else if (t.kind == T_SPACE) {
           offset.x += font.space_width;
         } else {
           String token_string = buffer_part_to_string(&buffer, 
                                                       t.start, 
                                                       t.start + t.count);
-          
-          u32 green = 0xFFA6E22E;
-          u32 orange = 0xFFFD911F;
-          
           u32 color = 0xFFF8F8F2;
           
           if (t.ast_kind == A_ARGUMENT) {
@@ -293,6 +319,17 @@ os_entry_point() {
         }
       }
     } pop_context();
+    
+    
+    {
+      V2 rect_min = v2_add(top_left, v2(0, -(f32)font.line_spacing));
+      draw_rect(renderer,
+                rect2_min_size(rect_min, v2(window_size.x, font.line_spacing)),
+                v4(0, 0, 0, 1));
+      draw_string(renderer, const_string("fucj"), 
+                  v2_add(rect_min, v2(0, font.line_spacing)), v4(1, 1, 1, 1));
+    }
+    
     
 #if 0    
     String buffer_content = text_buffer_to_string(&buffer);

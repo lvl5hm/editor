@@ -1,5 +1,3 @@
-
-
 inline i32 get_gap_count(Text_Buffer *b) {
 }
 
