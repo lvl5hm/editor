@@ -15,37 +15,7 @@ f64 win32_get_time() {
 }
 
 
-u64 cpu_clock_begin = 0;
 
-typedef enum {
-  Profiler_Event_Type_NONE,
-  Profiler_Event_Type_BEGIN,
-  Profiler_Event_Type_END,
-} Profiler_Event_Type;
-
-typedef struct {
-  u64 stamp;
-  char *name;
-  Profiler_Event_Type type;
-} Profiler_Event;
-
-Profiler_Event profiler_events[10000000];
-i32 profiler_event_count = 0;
-
-
-void _begin_profiler_event(char *name) {
-  Profiler_Event *event = profiler_events + profiler_event_count++;
-  event->stamp = __rdtsc() - cpu_clock_begin;
-  event->name = name;
-  event->type = Profiler_Event_Type_BEGIN;
-}
-
-void _end_profiler_event(char *name) {
-  Profiler_Event *event = profiler_events + profiler_event_count++;
-  event->stamp = __rdtsc() - cpu_clock_begin;
-  event->name = name;
-  event->type = Profiler_Event_Type_END;
-}
 
 os_entry_point() {
   context_init(megabytes(20));
@@ -239,7 +209,7 @@ os_entry_point() {
     
     end_profiler_event("loop");
     
-    if (profiler_event_count) {
+    if (profiler_event_count && false) {
       FILE *file;
       errno_t err = fopen_s(&file, "profile.json", "wb");
       

@@ -19,6 +19,9 @@ typedef enum {
   T_RETURN,
   T_BREAK,
   
+  T_SIGNED,
+  T_UNSIGNED,
+  
   T_STRUCT,
   T_ENUM,
   T_UNION,
@@ -103,6 +106,8 @@ typedef enum {
 #define arr_string(chars) {chars, array_count(chars)-1}
 
 String Token_Kind_To_String[] = {
+  [T_SIGNED] = arr_string("signed"),
+  [T_UNSIGNED] = arr_string("unsigned"),
   [T_UNION] = arr_string("union"),
   [T_EXTERN] = arr_string("extern"),
   [T_AUTO] = arr_string("auto"),

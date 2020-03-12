@@ -1,3 +1,15 @@
+void foo(int *bar, char baz);
+
+typedef struct {
+  i32 buffer_sample_count;
+  i32 samples_per_second;
+  WORD single_sample_size;
+  WORD channel_count;
+  i32 current_sample_index;
+  LPDIRECTSOUNDBUFFER direct_buffer;
+} win32_Sound;
+
+
 #include <stdio.h>
 #include <malloc.h>
 #include <math.h>
@@ -17,15 +29,6 @@
 #include "lvl5_context.h"
 
 
-
-typedef struct {
-  i32 buffer_sample_count;
-  i32 samples_per_second;
-  WORD single_sample_size;
-  WORD channel_count;
-  i32 current_sample_index;
-  LPDIRECTSOUNDBUFFER direct_buffer;
-} win32_Sound;
 
 typedef enum {
   Replay_State_NONE,

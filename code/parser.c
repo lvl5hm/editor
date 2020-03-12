@@ -65,14 +65,14 @@ Token *buffer_tokenize(Text_Buffer *b) {
 #define eat() { \
     next(1); \
   }
-#define end(tok_kind) { \
+#define end_no_continue(tok_kind) { \
     t.kind = tok_kind; \
     t.start = token_start; \
     t.count = i - token_start; \
     token_start = i; \
     sb_push(tokens, t); \
-    continue; \
   }
+#define end(tok_kind) end_no_continue(tok_kind); continue;
   
 #define case1(ch0, kind0) \
   case ch0: { \
@@ -107,6 +107,9 @@ Token *buffer_tokenize(Text_Buffer *b) {
     switch (get(0)) {
       case 0: {
         goto end;
+      } break;
+      case '\r': {
+        skip(1);
       } break;
       case ' ': {
         eat();
@@ -244,7 +247,22 @@ Token *buffer_tokenize(Text_Buffer *b) {
       case '#': {
         eat();
         while (is_digit(get(0)) || is_alpha(get(0))) eat();
-        end(T_POUND);
+        end_no_continue(T_POUND);
+        
+        i32 j = 0;
+        while (get(j) == ' ') {
+          eat();
+          end_no_continue(T_SPACE);
+        }
+        
+        if (get(j) == '<') {
+          skip(j);
+          while (get(0) != '>') {
+            eat();
+          }
+          eat();
+          end(T_STRING);
+        }
       } break;
       
       case1('\\', T_BACKSLASH);
@@ -375,32 +393,6 @@ void add_function(Parser *p, String name) {
 
 
 
-void parse_directive(Parser *p) {
-  Token *t = peek_token(p, 0);
-  
-  if (t->kind == T_POUND &&string_compare(token_to_string(p->buffer, t), const_string("#include"))) {
-    next_token(p);
-    
-    t = peek_token(p, 0);
-    if (t->kind == T_LESS) {
-      t->kind = T_STRING;
-      while (peek_token(p, 0)->kind != T_GREATER) {
-        t = peek_token(p, 0);
-        t->kind = T_STRING;
-        next_token(p);
-      }
-      t = peek_token(p, 0);
-      t->kind = T_STRING;
-      next_token(p);
-    } else {
-      next_token(p);
-    }
-  } else {
-    next_token(p);
-  }
-}
-
-
 void match_brace(Parser *p, Token_Type left, Token_Type right) {
   i32 count = 0;
   while (true) {
@@ -450,6 +442,8 @@ void match_brace(Parser *p, Token_Type left, Token_Type right) {
 
 
 Token *parse_declarator(Parser *, bool);
+bool parse_decl_specifier(Parser *);
+bool parse_decl(Parser *);
 
 Token *parse_direct_declarator(Parser *p, bool is_typedef) {
   Token *result = null;
@@ -475,7 +469,12 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
       result->ast_kind = A_FUNCTION;
       add_function(p, token_to_string(p->buffer, result));
     }
-    match_brace(p, T_LPAREN, T_RPAREN);
+    if (!accept_token(p, T_RPAREN)) {
+      do {
+        while (parse_decl_specifier(p));
+        parse_declarator(p, false);
+      } while (accept_token(p, T_COMMA));
+    }
   }
   
   return result;
@@ -520,28 +519,37 @@ bool parse_init_declarator(Parser *p, bool is_typedef) {
   return result;
 }
 
+bool parse_decl_specifier(Parser *);
+
 bool parse_struct_specifier(Parser *p) {
   bool result = false;
   
   Mem_Size mark = scratch_get_mark();
   if (accept_token(p, T_STRUCT) || accept_token(p, T_UNION)) {
+    bool has_name = false, has_body = false;
     if (accept_token(p, T_NAME)) {
       Token *struct_name = peek_token(p, -1);
       struct_name->ast_kind = A_TYPE;
       // token_to_string is scratch
       add_type(p, token_to_string(p->buffer, struct_name));
-      
-      if (accept_token(p, T_LCURLY)) {
-        match_brace(p, T_LCURLY, T_RCURLY);
-      }
-      
-      result = true;
-    } else if (accept_token(p, T_LCURLY)) {
-      match_brace(p, T_LCURLY, T_RCURLY);
-      result = true;
-    } else {
-      result = false;
+      has_name = true;
     }
+    
+    if (accept_token(p, T_LCURLY)) {
+      while (!accept_token(p, T_RCURLY)) {
+        if (parse_decl_specifier(p)) {
+          while (parse_decl_specifier(p));
+          do {
+            parse_declarator(p, false);
+          } while (accept_token(p, T_COMMA));
+          accept_token(p, T_SEMI);
+        } else {
+          next_token(p);
+        }
+      }
+      has_body = true;
+    }
+    result = has_name || has_body;
   }
   
   scratch_set_mark(mark);
@@ -559,6 +567,38 @@ bool parse_typename(Parser *p) {
   return false;
 }
 
+bool parse_enum_specifier(Parser *p) {
+  bool result = false;
+  if (accept_token(p, T_ENUM)) {
+    bool has_name = false, has_body = false;
+    if (accept_token(p, T_NAME)) {
+      Token *struct_name = peek_token(p, -1);
+      struct_name->ast_kind = A_TYPE;
+      // token_to_string is scratch
+      add_type(p, token_to_string(p->buffer, struct_name));
+      has_name = true;
+    }
+    
+    if (accept_token(p, T_LCURLY)) {
+      while (!accept_token(p, T_RCURLY)) {
+        if (accept_token(p, T_NAME)) {
+          if (accept_token(p, T_ASSIGN)) {
+            while (!accept_token(p, T_COMMA)) {
+              next_token(p);
+            }
+          }
+        } else {
+          next_token(p);
+        }
+      }
+      has_body = true;
+    }
+    result = has_name || has_body;
+  }
+  
+  return result;
+}
+
 bool parse_decl_specifier(Parser *p) {
   Token *t = peek_token(p, 0);
   switch (t->kind) {
@@ -567,6 +607,9 @@ bool parse_decl_specifier(Parser *p) {
     case T_EXTERN:
     case T_AUTO:
     case T_REGISTER:
+    
+    case T_SIGNED:
+    case T_UNSIGNED:
     
     case T_INLINE:
     case T_CONST: 
@@ -584,11 +627,9 @@ bool parse_decl_specifier(Parser *p) {
       return parse_struct_specifier(p);
     } break;
     
-#if 0    
     case T_ENUM: {
       return parse_enum_specifier(p);
     } break;
-#endif
   }
   return false;
 }
@@ -641,9 +682,6 @@ Token *buffer_parse(Text_Buffer *b) {
   add_type(p, const_string("float"));
   add_type(p, const_string("double"));
   
-  add_type(p, const_string("String"));
-  add_type(p, const_string("V2"));
-  add_type(p, const_string("i32"));
   
   parse_program(&parser);
   return parser.tokens;
