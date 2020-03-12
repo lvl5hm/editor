@@ -1,662 +1,920 @@
-inline i32 get_gap_count(Text_Buffer *b) {
-}
+#include <stdio.h>
+#include <malloc.h>
+#include <math.h>
 
+#define LVL5_DEBUG
+#include "lvl5_math.h"
+#include "lvl5_types.h"
+#include "lvl5_stretchy_buffer.h"
 
-inline i32 get_gap_start(Text_Buffer *b) {
-  i32 gap_count = get_gap_count(b);
-  i32 result = b->cursor;
-  assert(result <= b->capacity - gap_count);
-  return result;
-}
+#include <Windows.h>
+#include "platform.h"
+#include <dsound.h>
 
+#include "lvl5_opengl_win32.h"
 
-typedef struct TheFoo {
-  int bar;
-} Foo;
-
-Foo (*foo)(int *) = 0;
-
-#include "editor.h"
-#include <lvl5_stretchy_buffer.h>
+#define TARGET_FPS 60
+#include "lvl5_context.h"
 
 
 
+typedef struct {
+  i32 buffer_sample_count;
+  i32 samples_per_second;
+  WORD single_sample_size;
+  WORD channel_count;
+  i32 current_sample_index;
+  LPDIRECTSOUNDBUFFER direct_buffer;
+} win32_Sound;
 
+typedef enum {
+  Replay_State_NONE,
+  Replay_State_WRITE,
+  Replay_State_PLAY,
+} Replay_State;
 
-
-inline i32 get_buffer_pos(Text_Buffer *b, i32 pos) {
-  i32 gap_start = get_gap_start(b);
-  i32 gap_count = get_gap_count(b);
+typedef struct {
+  Replay_State state;
   
-  i32 result = pos + (pos >= gap_start)*gap_count;
-  
-  return result;
-}
+  byte *data;
+  Input inputs[TARGET_FPS*60];
+  i32 count;
+  i32 play_index;
+} win32_Replay;
 
-char get_buffer_char(Text_Buffer *b, i32 pos) {
-  char result = b->data[get_buffer_pos(b, pos)];
-  return result;
-}
 
-V2 get_buffer_xy(Text_Buffer *b, i32 pos) {
-  V2 result = v2_zero();
+typedef struct {
+  b32 window_resized;
+  u64 performance_frequency;
+  f32 dt;
+  b32 running;
+  win32_Sound sound;
+  Sound_Buffer game_sound_buffer;
   
-  for (i32 char_index = 0; char_index < pos; char_index++) {
-    char buffer_char = get_buffer_char(b, char_index);
-    if (buffer_char == '\n') {
-      result.x = 0;
-      result.y++;
-    } else {
-      result.x++;
-    }
-  }
-  
-  return result;
-}
+  win32_Replay replay;
+} win32_State;
 
-V2 get_screen_position_in_buffer(Font *font, Text_Buffer *b, i32 pos) {
-  V2 result = v2(0, -(f32)font->line_spacing);
-  
-  for (i32 char_index = 0; char_index < pos; char_index++) {
-    char buffer_char = get_buffer_char(b, char_index);
-    char first = buffer_char - font->first_codepoint;
-    if (buffer_char == '\n') {
-      result.x = 0;
-      result.y -= font->line_spacing;
-      continue;
-    }
+win32_State state;
+
+
+u64 win32_get_last_write_time(String file_name) {
+  WIN32_FIND_DATAA find_data;
+  HANDLE file_handle = FindFirstFileA(
+    to_c_string(file_name),
+    &find_data);
+  u64 result = 0;
+  if (file_handle != INVALID_HANDLE_VALUE) {
+    FindClose(file_handle);
+    FILETIME write_time = find_data.ftLastWriteTime;
     
-    char second = get_buffer_char(b, char_index+1) - font->first_codepoint;
-    result.x += font->advance[first*font->codepoint_count+second];
+    result = write_time.dwHighDateTime;
+    result = result << 32;
+    result = result | write_time.dwLowDateTime;
   }
   return result;
 }
 
-i32 seek_line_start(Text_Buffer *b, i32 start) {
-  i32 result = max(start, 0);
-  while (result > 0 && get_buffer_char(b, result-1) != '\n') {
-    result--;
+void win32_replay_begin_write(Memory memory) {
+  win32_Replay *r = &state.replay;
+  assert(r->state == Replay_State_NONE);
+  r->state = Replay_State_WRITE;
+  copy_memory_slow(r->data, memory.perm, memory.perm_size);
+  r->count = 0;
+}
+
+void win32_replay_begin_play(Memory memory) {
+  win32_Replay *r = &state.replay;
+  r->state = Replay_State_PLAY;
+  r->play_index = 0;
+  copy_memory_slow(memory.perm, r->data, memory.perm_size);
+}
+
+void win32_replay_save_input(Input input, Memory memory) {
+  win32_Replay *r = &state.replay;
+  assert(r->state == Replay_State_WRITE);
+  
+  r->inputs[r->count++] = input;
+  if (r->count == array_count(r->inputs)) {
+    win32_replay_begin_play(memory);
+  }
+}
+
+Input win32_replay_get_next_input(Memory memory) {
+  win32_Replay *r = &state.replay;
+  assert(r->state == Replay_State_PLAY);
+  assert(r->play_index < r->count);
+  Input result = r->inputs[r->play_index++];
+  if (r->play_index == r->count) {
+    win32_replay_begin_play(memory);
   }
   return result;
-}
-
-i32 seek_line_end(Text_Buffer *b, i32 start) {
-  i32 result = min(start, b->count - 1);
-  while (result < (i32)b->count-1 && get_buffer_char(b, result) != '\n') {
-    result++;
-  }
-  return result;
-}
-
-void set_cursor(Text_Buffer *b, i32 pos) {
-  assert(pos >= 0 && pos < b->count);
-  i32 old_gap_start = get_gap_start(b);
-  b->cursor = pos;
-  i32 gap_start = get_gap_start(b);
-  i32 moved_by = gap_start - old_gap_start;
-  
-  if (moved_by != 0) {
-    // move chars from one gap end to the other
-    i32 gap_count = get_gap_count(b);
-    
-    if (moved_by < 0) {
-      for (i32 i = 0; i < -moved_by; i++) {
-        b->data[old_gap_start+gap_count-1-i] = b->data[old_gap_start-1-i];
-      }
-    } else {
-      for (i32 i = 0; i < moved_by; i++) {
-        b->data[old_gap_start+i] = b->data[old_gap_start+gap_count+i];
-      }
-    }
-    
-    for (i32 i = 0; i < gap_count; i++) {
-      b->data[gap_start+i] = '|';
-    }
-  }
-}
-
-void buffer_insert_string(Text_Buffer *b, String str) {
-  if (b->count + (i32)str.count > b->capacity) {
-    char *old_data = b->data;
-    i32 old_gap_start = get_gap_start(b);
-    i32 old_gap_count = get_gap_count(b);
-    
-    while (b->count + (i32)str.count > b->capacity) {
-      b->capacity = b->capacity*2;
-    }
-    b->data = alloc_array(char, b->capacity);
-    i32 gap_start = get_gap_start(b);
-    i32 gap_count = get_gap_count(b);
-    
-    i32 first_count = min(gap_start, b->count);
-    for (i32 i = 0; i < first_count; i++) {
-      b->data[i] = old_data[i];
-    }
-    
-    i32 second_count = b->count - first_count;
-    for (i32 i = 0; i < second_count; i++) {
-      b->data[gap_start+gap_count+i] = old_data[old_gap_start+old_gap_count+i];
-    }
-  }
-  
-  
-  for (i32 i = 0; i < (i32)str.count; i++) {
-    b->data[b->cursor+i] = str.data[i];
-  }
-  
-  if (b->mark > b->cursor) {
-    b->mark += str.count;
-  }
-  b->cursor += str.count;
-  b->count += str.count;
-  
-}
-
-void buffer_remove_backward(Text_Buffer *b, i32 count) {
-  assert(b->cursor - count >= 0);
-  
-  if (b->mark >= b->cursor) {
-    b->mark -= count;
-  }
-  b->cursor -= count;
-  b->count -= count;
-}
-
-void buffer_remove_forward(Text_Buffer *b, i32 count) {
-  assert(b->cursor < b->count - 1);
-  
-  if (b->mark > b->cursor) {
-    b->mark -= count;
-  }
-  b->count -= count;
-}
-
-b32 move_cursor_direction(Text_Buffer *b, os_Keycode direction) {
-  b32 result = false;
-  i32 cursor = b->cursor;
-  switch (direction) {
-    case os_Keycode_ARROW_RIGHT: {
-      if (cursor < b->count-1) {
-        cursor++;
-        result = true;
-      }
-    } break;
-    
-    case os_Keycode_ARROW_LEFT: {
-      if (cursor > 0) {
-        cursor--;
-        result = true;
-      }
-    } break;
-    
-    case os_Keycode_ARROW_DOWN: {
-      i32 line_start = seek_line_start(b, cursor);
-      i32 col = cursor - line_start;
-      i32 line_end = seek_line_end(b, cursor);
-      i32 want = line_end + 1 + col;
-      i32 max_possible = seek_line_end(b, line_end+1);
-      
-      if (want > max_possible) {
-        want = max_possible;
-      }
-      cursor = want;
-    } break;
-    
-    case os_Keycode_ARROW_UP: {
-      i32 line_start = seek_line_start(b, cursor);
-      i32 col = cursor - line_start;
-      i32 prev_line_start = seek_line_start(b, line_start-1);
-      i32 want = prev_line_start + col;
-      
-      i32 max_possible = max(line_start - 1, 0);
-      
-      if (want > max_possible) {
-        want = max_possible;
-      }
-      
-      cursor = want;
-    } break;
-    
-    default: assert(false);
-  }
-  set_cursor(b, cursor);
-  
-  return result;
-}
-
-String buffer_part_to_string(Text_Buffer *buffer, i32 start, i32 end) {
-  String str = {0};
-  str.count = end - start;
-  str.data = scratch_push_array(char, str.count);
-  for (i32 i = 0; i < (i32)str.count; i++) {
-    str.data[i] = get_buffer_char(buffer, start + i);
-  }
-  
-  return str;
-}
-
-String text_buffer_to_string(Text_Buffer *buffer) {
-  String result = buffer_part_to_string(buffer, 0, buffer->count);
-  return result;
-}
-
-void buffer_copy(Text_Buffer *buffer) {
-  i32 start = min(buffer->cursor, buffer->mark);
-  i32 end = max(buffer->cursor, buffer->mark);
-  buffer->exchange_count = end - start;
-  assert(buffer->exchange_count <= MAX_EXCHANGE_COUNT);
-  for (i32 i = 0; i < buffer->exchange_count; i++) {
-    buffer->exchange[i] = get_buffer_char(buffer, start+i);
-  }
-}
-
-void buffer_paste(Text_Buffer *buffer) {
-  String str = make_string(buffer->exchange, buffer->exchange_count);
-  buffer_insert_string(buffer, str);
-}
-
-void buffer_cut(Text_Buffer *buffer) {
-  buffer_copy(buffer);
-  i32 count = buffer->cursor - buffer->mark;
-  if (buffer->cursor < buffer->mark) {
-    i32 tmp = buffer->cursor;
-    buffer->cursor = buffer->mark;
-    buffer->mark = tmp;
-    count *= -1;
-  }
-  buffer_remove_backward(buffer, count);
-}
-
-
-String token_to_string(Text_Buffer *b, Token *t) {
-  String result = buffer_part_to_string(b, t->start, t->start+t->count);
-  return result;
-}
-
-Token_Type get_keyword_kind(String str) {
-  i32 result = 0;
-  for (i32 i = T_KEYWORD_FIRST; i <= T_KEYWORD_LAST; i++) {
-    String keyword_string = Token_Kind_To_String[i];
-    if (string_compare(keyword_string, str)) {
-      result = i;
-      break;
-    }
-  }
-  return result;
-}
-
-
-
-b32 is_digit(char c) {
-  b32 result = c >= '0' && c <= '9';
-  return result;
-}
-
-b32 is_alpha(char c) {
-  b32 result = (c >= 'a' && c <= 'z') ||
-    (c >= 'A' && c <= 'Z') || (c == '_');
-  return result;
-}
-
-b32 is_whitespace(char c) {
-  b32 result = c == ' ' || c == '\n' || c == '\t' || c == '\r';
-  return result;
-}
-
-
-Token *buffer_tokenize(Text_Buffer *b) {
-  Token *tokens = sb_new(Token, 1024);
-  
-  i32 line = 1;
-  i32 col = 1;
-  i32 token_start = 0;
-  
-  Token t = {0};
-  i32 i = 0;
-  
-#define get(index) get_buffer_char(b, i + index)
-  
-#define next(n) { \
-    col += n; \
-    i += n; \
-  }
-#define skip(n) { \
-    next(n); \
-    token_start += n; \
-  }
-#define eat() { \
-    next(1); \
-  }
-#define end(tok_kind) { \
-    t.line = line; \
-    t.col = col - (i - token_start); \
-    t.kind = tok_kind; \
-    t.start = token_start; \
-    t.count = i - token_start; \
-    token_start = i; \
-    sb_push(tokens, t); \
-    continue; \
-  }
-  
-#define case1(ch0, kind0) \
-  case ch0: { \
-    eat(); \
-    end(kind0); \
-  } break;
-#define case2(ch0, kind0, ch1, kind1) \
-  case ch0: { \
-    eat(); \
-    if (get(0) == ch1) { \
-      eat(); \
-      end(kind1); \
-    } else { \
-      end(kind0); \
-    } \
-  } break;
-#define case3(ch0, kind0, ch1, kind1, ch2, kind2) \
-  case ch0: { \
-    eat(); \
-    if (get(0) == ch1) { \
-      eat(); \
-      end(kind1); \
-    } else if (get(0) == ch2) { \
-      eat(); \
-      end(kind2); \
-    } else { \
-      end(kind0); \
-    } \
-  } break;
-  
-  while (true) {
-    switch (get(0)) {
-      case 0: {
-        goto end;
-      } break;
-      case ' ': {
-        eat();
-        end(T_SPACE);
-      } break;
-      case '\n': {
-        line++;
-        col = 1;
-        eat();
-        end(T_NEWLINE);
-      } break;
-      case '"': {
-        eat();
-        // TODO(lvl5): deal with escape sequences
-        while ((get(0) != '"') ||
-               (get(-1) == '\\')) {
-          eat();
-        }
-        eat();
-        end(T_STRING);
-      } break;
-      case '\'': {
-        eat();
-        eat();
-        eat();
-        end(T_CHAR);
-      } break;
-      
-      case '0': case '1': case '2': case '3': case '4':
-      case '5': case '6': case '7': case '8': case '9': {
-        eat();
-        while (is_digit(get(0))) eat();
-        
-        // float
-        if (get(0) == '.') {
-          eat();
-          //if (!is_digit((get0))) syntax_error("Unexpected symbol %c", *stream);
-          
-          while (is_digit(get(0))) eat();
-          end(T_FLOAT);
-        } else {
-          end(T_INT);
-        }
-      } break;
-      case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
-      case 'h': case 'i': case 'j': case 'k': case 'l': case 'm': case 'n':
-      case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u':
-      case 'v': case 'w': case 'x': case 'y': case 'z':
-      
-      case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
-      case 'H': case 'I': case 'J': case 'K': case 'L': case 'M': case 'N':
-      case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U':
-      case 'V': case 'W': case 'X': case 'Y': case 'Z':
-      
-      case '_': {
-        eat();
-        while (is_digit(get(0)) || is_alpha(get(0))) eat();
-        String value = buffer_part_to_string(b, token_start, i);
-        Token_Type kind = get_keyword_kind(value);
-        if (kind) {
-          t.line = line; 
-          t.col = col - (i - token_start); 
-          t.kind = kind;
-          t.start = token_start;
-          t.count = i - token_start;
-          token_start = i; 
-          sb_push(tokens, t); 
-          continue;
-        } else {
-          end(T_NAME);
-        }
-      } break;
-      
-      case '/': {
-        if (get(1) == '/') {
-          skip(2);
-          while (get(0) != '\n') {
-            skip(1);
-          }
-        } else if (get(1) == '*') {
-          skip(2);
-          while (!(get(0) == '*' && get(1) == '/')) {
-            skip(1);
-          }
-          skip(2);
-        } else {
-          eat();
-          if (get(0) == '=') {
-            end(T_ASSIGN_SLASH);
-          } else {
-            end(T_SLASH);
-          }
-        }
-      } break;
-      
-      case '#': {
-        skip(1);
-        while (is_digit(get(0)) || is_alpha(get(0))) eat();
-        end(T_POUND);
-      } break;
-      
-      case1('\\', T_BACKSLASH);
-      case1(',', T_COMMA);
-      case1(';', T_SEMI);
-      case1('(', T_LPAREN);
-      case1(')', T_RPAREN);
-      case1('[', T_LBRACKET);
-      case1(']', T_RBRACKET);
-      case1('{', T_LCURLY);
-      case1('}', T_RCURLY);
-      case1('~', T_BIT_NOT);
-      case1(':', T_COLON);
-      
-      case2('=', T_ASSIGN, '=', T_EQUALS);
-      case2('!', T_NOT, '=', T_NOT_EQUALS);
-      case2('+', T_PLUS, '=', T_ASSIGN_PLUS);
-      case2('*', T_STAR, '=', T_ASSIGN_STAR);
-      case2('^', T_BIT_XOR, '=', T_ASSIGN_BIT_XOR);
-      case2('%', T_PERCENT, '=', T_ASSIGN_PERCENT);
-      
-      case3('-', T_MINUS, '=', T_ASSIGN_MINUS, '>', T_ARROW);
-      case3('.', T_DOT, '.', T_DOUBLE_DOT, '.', T_TRIPLE_DOT);
-      case3('>', T_GREATER, '=', T_GREATER_EQUALS, '>', T_RSHIFT);
-      case3('<', T_LESS, '=', T_LESS_EQUALS, '>', T_LSHIFT);
-      case3('|', T_BIT_OR, '|', T_OR, '=', T_ASSIGN_BIT_OR);
-      case3('&', T_BIT_AND, '&', T_AND, '=', T_ASSIGN_BIT_AND);
-      
-      default: assert(false);
-    }
-  }
-  
-  end:
-  
-  return tokens;
 }
 
 typedef struct {
-  i32 i;
-  Token *tokens;
-  String *type_table;
-  String *function_table;
-  Text_Buffer *buffer;
-} Parser;
+  HANDLE handle;
+  Mem_Size size;
+  b32 no_errors;
+} win32_File;
 
-
-
-i32 skip_whitespace_backward(Parser *p, i32 offset) {
-  i32 result = offset;
-  while (p->tokens[result].kind == T_SPACE  || p->tokens[result].kind == T_NEWLINE) {
-    result--;
+PLATFORM_OPEN_FILE(win32_open_file) {
+  HANDLE handle = CreateFileA((LPCSTR)to_c_string(file_name),
+                              GENERIC_READ,
+                              FILE_SHARE_READ,
+                              0,
+                              OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL,
+                              0);
+  
+  win32_File *result = (win32_File *)malloc(sizeof(win32_File));
+  result->handle = INVALID_HANDLE_VALUE;
+  result->size = 0;
+  result->no_errors = false;
+  
+  if (handle != INVALID_HANDLE_VALUE)
+  {
+    LARGE_INTEGER file_size_li;
+    
+    if (GetFileSizeEx(handle, &file_size_li))
+    {
+      u64 file_size = file_size_li.QuadPart;
+      
+      result->handle = handle;
+      result->size = file_size;
+      result->no_errors = true;
+    }
   }
+  
+  return (File_Handle)result;
+}
+
+
+PLATFORM_FILE_ERROR(win32_file_error) {
+  ((win32_File *)file)->no_errors = false;
+}
+
+PLATFORM_FILE_HAS_NO_ERRORS(win32_file_has_no_errors) {
+  b32 result = ((win32_File *)file)->no_errors;
+  return result;
+}
+
+PLATFORM_READ_FILE(win32_read_file) {
+  if (win32_file_has_no_errors(file)) {
+    OVERLAPPED overlapped = {0};
+    overlapped.Offset = (u32)((offset >> 0) & 0xFFFFFFFF);
+    overlapped.OffsetHigh = (u32)((offset >> 32) & 0xFFFFFFFF);
+    
+    DWORD bytes_read;
+    ReadFile(
+      ((win32_File *)file)->handle,
+      dst,
+      (u32)size,
+      &bytes_read,
+      &overlapped);
+    assert(bytes_read == size);
+  }
+}
+
+PLATFORM_CLOSE_FILE(win32_close_file) {
+  CloseHandle(((win32_File *)file)->handle);
+  free(file);
+}
+
+u32 win32_sound_get_multisample_size(win32_Sound *snd) {
+  u32 result = snd->single_sample_size*snd->channel_count;
+  return result;
+}
+
+u32 win32_sound_get_buffer_size_in_bytes(win32_Sound *snd) {
+  u32 result = snd->buffer_sample_count*win32_sound_get_multisample_size(snd);
+  return result;
+}
+
+u32 win32_sound_get_bytes_per_second(win32_Sound *snd) {
+  u32 result = snd->samples_per_second*win32_sound_get_multisample_size(snd);
   return result;
 }
 
 
-i32 skip_whitespace_forward(Parser *p, i32 offset) {
-  i32 result = offset;
-  while (p->tokens[result].kind == T_SPACE  || p->tokens[result].kind == T_NEWLINE) {
-    result++;
-  }
+
+#define DIRECT_SOUND_CREATE(name) HRESULT WINAPI name(LPGUID lpGuid, \
+LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter)
+typedef DIRECT_SOUND_CREATE(Direct_Sound_Create);
+
+LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window, win32_Sound *win32_sound) {
+  HMODULE direct_sound_library = LoadLibraryA("dsound.dll");
+  assert(direct_sound_library);
+  
+  Direct_Sound_Create *DirectSoundCreate = (Direct_Sound_Create *)GetProcAddress(direct_sound_library, "DirectSoundCreate");
+  assert(DirectSoundCreate);
+  
+  LPDIRECTSOUND direct_sound;
+  HRESULT direct_sound_created = DirectSoundCreate(null, &direct_sound, null);
+  assert(direct_sound_created == DS_OK);
+  
+  HRESULT cooperative_level_set = IDirectSound_SetCooperativeLevel(direct_sound, 
+                                                                   window, DSSCL_PRIORITY);
+  assert(cooperative_level_set == DS_OK);
+  
+  // NOTE(lvl5): primary buffer
+  DSBUFFERDESC primary_desc = {0};
+  primary_desc.dwSize = sizeof(primary_desc);
+  primary_desc.dwFlags = DSBCAPS_PRIMARYBUFFER;
+  
+  LPDIRECTSOUNDBUFFER primary_buffer;
+  
+  
+  HRESULT primary_buffer_created = IDirectSound_CreateSoundBuffer(direct_sound, &primary_desc, &primary_buffer, null);
+  assert(primary_buffer_created == DS_OK);
+  
+  WAVEFORMATEX wave_format = {0};
+  wave_format.wFormatTag = WAVE_FORMAT_PCM;
+  wave_format.nChannels = win32_sound->channel_count;
+  wave_format.nSamplesPerSec = win32_sound->samples_per_second;
+  wave_format.wBitsPerSample = win32_sound->single_sample_size*8;
+  wave_format.nBlockAlign = wave_format.nChannels*wave_format.wBitsPerSample/8;
+  wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec*wave_format.nBlockAlign;
+  
+  HRESULT format_set = IDirectSoundBuffer_SetFormat(primary_buffer,  &wave_format);
+  assert(format_set == DS_OK);
+  
+  
+  // NOTE(lvl5): secondary buffer
+  DSBUFFERDESC secondary_desc = {0};
+  secondary_desc.dwSize = sizeof(secondary_desc);
+  secondary_desc.dwFlags = DSBCAPS_GLOBALFOCUS;
+  secondary_desc.dwBufferBytes = win32_sound_get_buffer_size_in_bytes(win32_sound);
+  secondary_desc.lpwfxFormat = &wave_format;
+  
+  LPDIRECTSOUNDBUFFER secondary_buffer;
+  
+  HRESULT secondary_buffer_created = IDirectSound_CreateSoundBuffer(direct_sound, &secondary_desc, &secondary_buffer, null);
+  assert(secondary_buffer_created == DS_OK);
+  
+  HRESULT is_playing = IDirectSoundBuffer_Play(secondary_buffer, null, null, DSBPLAY_LOOPING);
+  assert(is_playing == DS_OK);
+  
+  return secondary_buffer;
+}
+
+
+String win32_get_build_dir() {
+  String full_path;
+  full_path.data = (char *)scratch_alloc(sizeof(char)*MAX_PATH);
+  full_path.count = GetModuleFileNameA(0, full_path.data, MAX_PATH);
+  assert(full_path.count);
+  
+  u32 last_slash_index = find_last_index(full_path, const_string("\\"));
+  String result = substring(full_path, 0, last_slash_index + 1);
+  
   return result;
 }
 
-Token *peek_token(Parser *p, i32 offset) {
-  assert(p->i + offset < (i32)sb_count(p->tokens));
+String win32_get_work_dir() {
+#if 0
+  String build_dir = win32_get_build_dir();
+#endif
+  String path_end = const_string("..\\data\\");
   
-  i32 index = p->i;
-  while (offset < 0) {
-    index--;
-    index = skip_whitespace_backward(p, index);
-    offset++;
-  }
-  while (offset > 0) {
-    index++;
-    index = skip_whitespace_forward(p, index);
-    offset--;
-  }
-  
-  Token *result = p->tokens + index;
+  String result = path_end;// concat(&state.scratch, build_dir, path_end);
   return result;
 }
 
-void next_token(Parser *p) {
-  p->i++;
-  p->i = skip_whitespace_forward(p, p->i);
-  assert(p->i <= (i32)sb_count(p->tokens));
-}
-
-bool accept_token(Parser *p, Token_Type kind) {
-  bool result = false;
-  if (kind == peek_token(p, 0)->kind) {
-    result = true;
-    next_token(p);
-  }
+PLATFORM_READ_ENTIRE_FILE(win32_read_entire_file) {
+  String path = win32_get_work_dir();
+  String full_name = concat(path, file_name);
+  char *c_file_name = to_c_string(full_name);
+  HANDLE file = CreateFileA(c_file_name,
+                            GENERIC_READ,
+                            FILE_SHARE_READ,
+                            0,
+                            OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL,
+                            0);
+  
+  assert(file != INVALID_HANDLE_VALUE);
+  
+  LARGE_INTEGER file_size_li;
+  GetFileSizeEx(file, &file_size_li);
+  u64 file_size = file_size_li.QuadPart;
+  
+  byte *buffer = (byte *)malloc(file_size);
+  u32 bytes_read;
+  ReadFile(file, buffer, (DWORD)file_size, (LPDWORD)&bytes_read, 0);
+  assert(bytes_read == file_size);
+  
+  CloseHandle(file);
+  
+  Buffer result;
+  result.data = buffer;
+  result.size = file_size;
+  
   return result;
 }
 
-void parse_type_extra(Parser *p) {
-  i32 saved = p->i;
+DWORD win32_sound_get_write_start() {
+  win32_Sound win32_sound = state.sound;
   
-  Token *t = peek_token(p, 0);
+  DWORD write_start = win32_sound.current_sample_index*
+    win32_sound_get_multisample_size(&win32_sound) % 
+    win32_sound_get_buffer_size_in_bytes(&win32_sound);
   
-  switch (t->kind) {
-    case T_ENUM:
-    case T_STRUCT: {
-      next_token(p); // struct
-      
-      Token *struct_name = peek_token(p, 0);
-      struct_name->ast_kind = A_TYPE;
-      
-      accept_token(p, T_NAME);
-      accept_token(p, T_LCURLY);
-      
-      while (!accept_token(p, T_RCURLY)) {
-        parse_type_extra(p);
-        accept_token(p, T_SEMI);
-      }
-      
-      while (!accept_token(p, T_SEMI)) {
-        if (accept_token(p, T_NAME)) {
-          Token *type_name = peek_token(p, -1);
-          type_name->ast_kind = A_TYPE;
-        } else {
-          next_token(p);
-        }
-      }
+  return write_start;
+}
+
+Sound_Buffer *win32_request_sound_buffer() {
+  win32_Sound *sound = &state.sound;
+  Sound_Buffer *game_sound_buffer = &state.game_sound_buffer;
+  
+  DWORD write_start = win32_sound_get_write_start();
+  DWORD write_length = 0;
+  
+  DWORD write_cursor;
+  HRESULT got_position = IDirectSoundBuffer_GetCurrentPosition(sound->direct_buffer,
+                                                               null, &write_cursor);
+  assert(got_position == DS_OK);
+  
+  u32 bytes_per_frame = win32_sound_get_bytes_per_second(sound)/60;
+  
+#define OVERWRITE_BYTES align_pow_2(sound->samples_per_second/TARGET_FPS*win32_sound_get_multisample_size(sound)*2, 32)
+  
+  DWORD target_cursor = align_pow_2((write_cursor + bytes_per_frame + OVERWRITE_BYTES) %
+                                    win32_sound_get_buffer_size_in_bytes(sound), 32);
+  
+  if (target_cursor == write_start) {
+    write_length = 0;
+  } else {
+    if (target_cursor > write_start) {
+      write_length = target_cursor - write_start;
+    } else {
+      write_length = win32_sound_get_buffer_size_in_bytes(sound) - 
+        write_start + target_cursor;
+    }
+  }
+  
+  game_sound_buffer->count = write_length/win32_sound_get_multisample_size(sound);
+  game_sound_buffer->overwrite_count = OVERWRITE_BYTES/
+    win32_sound_get_multisample_size(sound);
+  
+  return game_sound_buffer;
+}
+
+
+
+void win32_fill_audio_buffer(win32_Sound *win32_sound, Sound_Buffer *src_buffer) {
+  DWORD write_start = win32_sound_get_write_start();
+  u32 multisample_size = win32_sound_get_multisample_size(win32_sound);
+  u32 size_to_lock = src_buffer->count*multisample_size;
+  
+  i16 *first_region;
+  DWORD first_bytes;
+  i16 *second_region;
+  DWORD second_bytes;
+  
+  HRESULT is_locked = IDirectSoundBuffer_Lock(win32_sound->direct_buffer, write_start, size_to_lock,
+                                              (LPVOID)&first_region, &first_bytes,
+                                              (LPVOID)&second_region, &second_bytes, null);
+  assert(is_locked == DS_OK);
+  
+  i32 first_sample_count = first_bytes/multisample_size;
+  i32 second_sample_count = second_bytes/multisample_size;
+  assert(first_sample_count + second_sample_count == src_buffer->count);
+  
+  i16 *src = src_buffer->samples;
+  
+  for (i32 sample_index = 0; sample_index < first_sample_count; sample_index++) {
+    first_region[sample_index*2] = *src++;
+    first_region[sample_index*2 + 1] = *src++;
+    win32_sound->current_sample_index++;
+  }
+  
+  for (i32 sample_index = 0; sample_index < second_sample_count; sample_index++) {
+    second_region[sample_index*2] = *src++;
+    second_region[sample_index*2 + 1] = *src++;
+    win32_sound->current_sample_index++;
+  }
+  
+  win32_sound->current_sample_index -= src_buffer->overwrite_count;
+  
+  assert(src == src_buffer->samples + src_buffer->count*2);
+  
+  HRESULT is_unlocked = IDirectSoundBuffer_Unlock(win32_sound->direct_buffer, first_region, first_bytes, second_region, second_bytes);
+  assert(is_unlocked == DS_OK);
+}
+
+
+f64 win32_get_time() {
+  LARGE_INTEGER time_li;
+  QueryPerformanceCounter(&time_li);
+  f64 result = ((f64)time_li.QuadPart/(f64)state.performance_frequency);
+  return result;
+}
+
+
+void win32_handle_button(Button *button, b32 is_down) {
+  if (is_down) {
+    button->pressed = true;
+  }
+  if (button->is_down && !is_down) {
+    button->went_up = true;
+  } else if (!button->is_down && is_down) {
+    button->went_down = true;
+  }
+  button->is_down = (bool)is_down;
+}
+
+
+
+
+
+LRESULT CALLBACK WindowProc(HWND window,
+                            UINT message,
+                            WPARAM wParam,
+                            LPARAM lParam) {
+  switch (message) {
+    case WM_SIZE: {
+      state.window_resized = true;
     } break;
     
-    case T_NAME: {
-      Token *type_name = peek_token(p, 0);
-      accept_token(p, T_NAME);
-      if (accept_token(p, T_LPAREN)) {
-        // function call
-        type_name->ast_kind = A_FUNCTION;
-        type_name = null;
-      } else {
-        while (accept_token(p, T_STAR)) {
-        }
-      }
-      
-      if (type_name) {
-        Token *decl_name = peek_token(p, 0);
-        if (accept_token(p, T_NAME)) {
-          if (accept_token(p, T_LPAREN)) {
-            decl_name->ast_kind = A_FUNCTION;
-            type_name->ast_kind = A_TYPE;
-          } else if (accept_token(p, T_SEMI) || 
-                     accept_token(p, T_ASSIGN) || 
-                     accept_token(p, T_COMMA) ||
-                     accept_token(p, T_RPAREN)) {
-            type_name->ast_kind = A_TYPE;
-          }
-        }
-      }
+    case WM_DESTROY:
+    case WM_CLOSE:
+    case WM_QUIT: 
+    {
+      state.running = false;
     } break;
     
     default: {
-      next_token(p);
-    } break;
+      return DefWindowProcA(window, message, wParam, lParam);
+    }
+  }
+  return 0;
+}
+
+
+File_List win32_get_files_in_folder(String str) {
+  File_List result = {0};
+  
+  // TODO(lvl5): this needs to be freed at some point
+  result.files = sb_new(String, 16);
+  
+  WIN32_FIND_DATAA findData;
+  String wildcard = concat(win32_get_work_dir(), concat(str, const_string("\\*.*")));
+  char *wildcard_c = to_c_string(wildcard);
+  HANDLE file = FindFirstFileA(wildcard_c, &findData);
+  
+  while (file != INVALID_HANDLE_VALUE) {
+    if (!c_string_compare(findData.cFileName, ".") &&
+        !c_string_compare(findData.cFileName, "..")) {
+      
+      char *src = findData.cFileName;
+      i32 name_length = c_string_length(src);
+      char *dst = (char *)malloc(name_length);
+      copy_memory_slow(dst, src, name_length);
+      
+      sb_push(result.files, make_string(dst, name_length));
+      result.count++;
+    }
+    
+    b32 next_file_found = FindNextFileA(file, &findData);
+    if (!next_file_found) {
+      break;
+    }
   }
   
+  return result;
 }
 
-void parse_program(Parser *p) {
-  while (p->i < (i32)sb_count(p->tokens)) {
-    parse_type_extra(p);
+
+ALLOCATOR(system_allocator) {
+  byte *result = null;
+  switch (type) {
+    case Alloc_Op_ALLOC: {
+      result = (byte *)malloc(size);
+    } break;
+    
+    case Alloc_Op_FREE: {
+      free(old_ptr);
+    } break;
+    
+    case Alloc_Op_REALLOC: {
+      result = realloc(old_ptr, size);
+    } break;
+    
+    invalid_default_case;
   }
+  return result;
 }
 
-Token *buffer_parse(Text_Buffer *b) {
-  Parser parser = {
-    .i = 0,
-    .tokens = buffer_tokenize(b),
-    .type_table = sb_new(String, 64),
-    .function_table = sb_new(String, 64),
-    .buffer = b,
-  };
-  sb_push(parser.type_table, const_string("void"));
-  sb_push(parser.type_table, const_string("char"));
-  sb_push(parser.type_table, const_string("int"));
-  sb_push(parser.type_table, const_string("short"));
-  sb_push(parser.type_table, const_string("float"));
-  sb_push(parser.type_table, const_string("long"));
-  sb_push(parser.type_table, const_string("double"));
-  sb_push(parser.type_table, const_string("unsigned"));
-  sb_push(parser.type_table, const_string("signed"));
-  parse_program(&parser);
-  return parser.tokens;
+
+typedef struct {
+  volatile i32 write_cursor;
+  volatile i32 read_cursor;
+  Work_Queue_Entry entries[32];
+  HANDLE semaphore;
+} win32_Work_Queue;
+
+
+typedef struct {
+  win32_Work_Queue *queue;
+  i32 thread_index;
+} win32_Thread_Info;
+
+PLATFORM_ADD_WORK_QUEUE_ENTRY(win32_add_queue_entry) {
+  win32_Work_Queue *queue = (win32_Work_Queue *)queue_ptr;
+  
+  Work_Queue_Entry *entry = queue->entries + queue->write_cursor;
+  entry->fn = fn;
+  entry->data = data;
+  
+  complete_past_writes_before_future_writes();
+  i32 new_write_cursor = (queue->write_cursor + 1) % array_count(queue->entries);
+  assert(new_write_cursor != queue->read_cursor);
+  queue->write_cursor = new_write_cursor;
+  ReleaseSemaphore(queue->semaphore, 1, 0);
 }
+
+b32 win32_do_next_queue_entry(win32_Work_Queue *queue) {
+  b32 result = true;
+  
+  i32 original_read_cursor = queue->read_cursor;
+  i32 new_read_cursor = (original_read_cursor + 1) % 
+    array_count(queue->entries);
+  
+  if (original_read_cursor != queue->write_cursor) {
+    i32 index = InterlockedCompareExchange((volatile LONG *)&queue->read_cursor,
+                                           new_read_cursor,
+                                           original_read_cursor);
+    if (index == original_read_cursor) {
+      Work_Queue_Entry *entry = queue->entries + index;
+      entry->fn(entry->data);
+    }
+  } else {
+    result = false;
+  }
+  
+  return result;
+}
+
+DWORD WINAPI ThreadProc(void *data) {
+  win32_Thread_Info *info = (win32_Thread_Info *)data;
+  win32_Work_Queue *queue = info->queue;
+  
+  while (true) {
+    char buffer[128];
+    sprintf_s(buffer, array_count(buffer), "thread %d: ", info->thread_index);
+    OutputDebugStringA(buffer);
+    b32 should_try_again = win32_do_next_queue_entry(queue);
+    if (!should_try_again) {
+      WaitForSingleObjectEx(queue->semaphore, INFINITE, false);
+    }
+  }
+  
+  return 0;
+}
+
+
+#define THREAD_COUNT 8
+
+int CALLBACK WinMain(HINSTANCE instance,
+                     HINSTANCE prevInstance,
+                     LPSTR commandLine,
+                     int showCommandLine) {
+  {
+    // NOTE(lvl5): context stuff
+    Global_Context_Info info = {0};
+    Context default_ctx = {0};
+    default_ctx.allocator = system_allocator;
+    Arena scratch;
+    Mem_Size scratch_size = megabytes(64);
+    arena_init(&scratch, malloc(scratch_size), scratch_size);
+    default_ctx.scratch = scratch;
+    
+    global_context_info = &info;
+    push_context(default_ctx);
+  }
+  
+  
+  
+  win32_Work_Queue high_queue = {0};
+  high_queue.semaphore = CreateSemaphoreA(null, 0, array_count(high_queue.entries), null);
+  win32_Thread_Info thread_infos[THREAD_COUNT];
+  
+  for (i32 thread_index = 0; thread_index < THREAD_COUNT; thread_index++) {
+    win32_Thread_Info *info = thread_infos + thread_index;
+    info->queue = &high_queue;
+    info->thread_index = thread_index;
+    CreateThread(null, 0, ThreadProc, info, 0, null);
+  }
+  
+  LARGE_INTEGER performance_frequency_li;
+  QueryPerformanceFrequency(&performance_frequency_li);
+  state.performance_frequency = performance_frequency_li.QuadPart;
+  
+  MMRESULT sheduler_granularity_set = timeBeginPeriod(1);
+  assert(sheduler_granularity_set == TIMERR_NOERROR);
+  
+  Mem_Size scratch_size = kilobytes(40);
+  
+  // NOTE(lvl5): init openGL
+  HWND window = win32_init_opengl(instance, WindowProc);
+  
+  // NOTE(lvl5): init sound
+  {
+    win32_Sound win32_sound;
+    win32_sound.current_sample_index = 0;
+    win32_sound.samples_per_second = SAMPLES_PER_SECOND;
+    win32_sound.channel_count = 2;
+    win32_sound.single_sample_size = sizeof(i16);
+    win32_sound.buffer_sample_count = align_pow_2(win32_sound.samples_per_second, 16);
+    
+    win32_sound.direct_buffer = win32_init_dsound(window, &win32_sound);
+    
+    Sound_Buffer game_sound_buffer = {0};
+    game_sound_buffer.samples = (i16 *)malloc(sizeof(i16)*win32_sound.buffer_sample_count*win32_sound.channel_count);
+    zero_memory_slow(game_sound_buffer.samples, win32_sound_get_buffer_size_in_bytes(&win32_sound));
+    
+    
+    state.game_sound_buffer = game_sound_buffer;
+    state.sound = win32_sound;
+  }
+  
+  HDC device_context = GetDC(window);
+  
+  Memory game_memory;
+  game_memory.global_context_info = global_context_info;
+  game_memory.perm_size = megabytes(64);
+  game_memory.temp_size = gigabytes(1);
+  game_memory.debug_size = megabytes(512);
+  Mem_Size total_size = game_memory.perm_size + game_memory.temp_size + game_memory.debug_size;
+  byte *total_memory = (byte *)VirtualAlloc((void *)terabytes(2),
+                                            total_size,
+                                            MEM_COMMIT|MEM_RESERVE,
+                                            PAGE_READWRITE);
+  assert(total_memory);
+  
+  game_memory.perm = total_memory;
+  game_memory.temp = game_memory.perm + game_memory.perm_size;
+  game_memory.debug = game_memory.temp + game_memory.temp_size;
+  
+  zero_memory_slow(total_memory, game_memory.perm_size);
+  
+  state.replay.data = malloc(game_memory.perm_size);
+  
+  Input game_input = {0};
+  
+  state.running = true;
+  state.dt = 0;
+  
+  f64 last_time = win32_get_time();
+  u64 last_cycles = __rdtsc();
+  
+  Platform platform;
+  platform.request_sound_buffer = win32_request_sound_buffer;
+  platform.read_entire_file = win32_read_entire_file;
+  platform.gl = gl;
+  platform.get_files_in_folder = win32_get_files_in_folder;
+  platform.open_file = win32_open_file;
+  platform.file_error = win32_file_error;
+  platform.file_has_no_errors = win32_file_has_no_errors;
+  platform.read_file = win32_read_file;
+  platform.close_file = win32_close_file;
+  platform.add_work_queue_entry = win32_add_queue_entry;
+  platform.high_queue = (Work_Queue)&high_queue;
+  
+  HMODULE game_lib = 0;
+  Game_Update *game_update = 0;
+  u64 last_game_dll_write_time = 0;
+  
+  MSG message;
+  while (state.running) {
+    scratch_reset();
+    
+    {
+      String build_dir = win32_get_build_dir();
+      String lock_path = concat(build_dir,
+                                const_string("lock.tmp"));
+      WIN32_FILE_ATTRIBUTE_DATA ignored;
+      b32 lock_file_exists = 
+        GetFileAttributesExA(to_c_string(lock_path), GetFileExInfoStandard, &ignored);
+      String dll_path = concat(build_dir,
+                               const_string("game.dll"));
+      
+      u64 current_write_time = win32_get_last_write_time(dll_path);
+      if (!lock_file_exists && 
+          current_write_time &&
+          last_game_dll_write_time != current_write_time) {
+        if (game_lib) {
+          FreeLibrary(game_lib);
+        }
+        
+        String copy_dll_path = 
+          concat(build_dir, const_string("game_temp.dll"));
+        
+        char *src = to_c_string(dll_path);
+        char *dst = to_c_string(copy_dll_path);
+        b32 copy_success = CopyFileA(src, dst, false);
+        assert(copy_success);
+        
+        game_lib = LoadLibraryA("game_temp.dll");
+        assert(game_lib);
+        game_update = (Game_Update *)GetProcAddress(game_lib, "game_update");
+        assert(game_update);
+        
+        last_game_dll_write_time = current_write_time;
+        game_memory.is_reloaded = true;
+      } else {
+        game_memory.is_reloaded = false;
+      }
+    }
+    
+    if (state.window_resized) {
+      game_memory.window_resized = true;
+      state.window_resized = false;
+    } else {
+      game_memory.window_resized = false;
+    }
+    
+    
+    f64 time_frame_start = win32_get_time();
+    u64 cycles_frame_start = __rdtsc();
+    
+    for (u32 button_index = 0; 
+         button_index < array_count(game_input.buttons);
+         button_index++) {
+      Button *b = game_input.buttons + button_index;
+      b->went_down = false;
+      b->went_up = false;
+      b->pressed = false;
+    }
+    
+    for (u32 button_index = 0; 
+         button_index < array_count(game_input.keys);
+         button_index++) {
+      Button *b = game_input.keys + button_index;
+      b->went_down = false;
+      b->went_up = false;
+      b->pressed = false;
+    }
+    
+    game_input.mouse.left.went_up = false;
+    game_input.mouse.left.went_down = false;
+    game_input.mouse.right.went_up = false;
+    game_input.mouse.right.went_down = false;
+    
+    game_input.char_code = 0;
+    
+    
+    RECT client_rect;
+    GetClientRect(window, &client_rect);
+    v2 game_screen = V2((f32)(client_rect.right - client_rect.left),
+                        (f32)(client_rect.bottom - client_rect.top));
+    
+    POINT mouse_p;
+    GetCursorPos(&mouse_p);
+    ScreenToClient(window, &mouse_p);
+    game_input.mouse.p.x = (f32)mouse_p.x;
+    game_input.mouse.p.y = (f32)(client_rect.bottom - mouse_p.y);
+    game_input.mouse.scroll = 0;
+    
+    
+    while (PeekMessage(&message, window, 0, 0, PM_REMOVE)) {
+      switch (message.message) {
+        case WM_MOUSEWHEEL: {
+          game_input.mouse.scroll = GET_WHEEL_DELTA_WPARAM(message.wParam)/WHEEL_DELTA;
+        } break;
+        
+        case WM_RBUTTONDOWN: {
+          win32_handle_button(&game_input.mouse.right, true);
+          win32_handle_button(&game_input.skills[1], true);
+        } break;
+        case WM_LBUTTONDOWN: {
+          win32_handle_button(&game_input.mouse.left, true);
+          win32_handle_button(&game_input.skills[0], true);
+        } break;
+        case WM_LBUTTONUP: {
+          win32_handle_button(&game_input.mouse.left, false);
+          win32_handle_button(&game_input.skills[0], false);
+        } break;
+        case WM_RBUTTONUP: {
+          win32_handle_button(&game_input.mouse.right, false);
+          win32_handle_button(&game_input.skills[1], false);
+        } break;
+        
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        case WM_SYSKEYDOWN:
+        case WM_SYSKEYUP: {
+#define KEY_WAS_DOWN_BIT 1 << 30
+#define KEY_IS_UP_BIT 1 << 31
+#define SCAN_CODE_MASK 0x0000FF00
+          
+          b32 key_was_down = (message.lParam & KEY_WAS_DOWN_BIT);
+          b32 key_is_down = !(message.lParam & KEY_IS_UP_BIT);
+          b32 key_went_down = !key_was_down && key_is_down;
+          WPARAM key_code = message.wParam;
+          
+          if (key_is_down) {
+            u32 scan_code = message.lParam & SCAN_CODE_MASK;
+            byte keyboard_state[256];
+            GetKeyboardState(keyboard_state);
+            u16 char_code_u16[2];
+            i32 got_keycode = ToAscii((UINT)key_code, scan_code,
+                                      keyboard_state, char_code_u16, 0);
+            
+            if (got_keycode > 0) {
+              game_input.char_code = (char)char_code_u16[0];
+            }
+          }
+          
+          if (key_code < array_count(game_input.keys)) {
+            win32_handle_button(&game_input.keys[key_code], key_is_down);
+          }
+          
+          switch (key_code)
+          {
+            case VK_LEFT:
+            win32_handle_button(&game_input.move_left, key_is_down);
+            break;
+            case VK_RIGHT:
+            win32_handle_button(&game_input.move_right, key_is_down);
+            break;
+            case VK_UP:
+            win32_handle_button(&game_input.move_up, key_is_down);
+            break;
+            case VK_DOWN:
+            win32_handle_button(&game_input.move_down, key_is_down);
+            break;
+            
+            
+            case 'Q':
+            win32_handle_button(&game_input.skills[2], key_is_down);
+            break;
+            case 'E':
+            win32_handle_button(&game_input.skills[3], key_is_down);
+            break;
+            case 'A':
+            win32_handle_button(&game_input.move_left, key_is_down);
+            break;
+            case 'D':
+            win32_handle_button(&game_input.move_right, key_is_down);
+            break;
+            case 'W':
+            win32_handle_button(&game_input.move_up, key_is_down);
+            break;
+            case 'S':
+            win32_handle_button(&game_input.move_down, key_is_down);
+            break;
+            case VK_SPACE:
+            win32_handle_button(&game_input.start, key_is_down);
+            break;
+            case VK_F1:
+            if (key_went_down && state.replay.state == Replay_State_NONE)
+              win32_replay_begin_write(game_memory);
+            break;
+            case VK_F2:
+            if (key_went_down && state.replay.state == Replay_State_WRITE)
+              win32_replay_begin_play(game_memory);
+            break;
+          }
+        } break;
+        
+        default:
+        {
+          TranslateMessage(&message);
+          DispatchMessage(&message);
+        }
+      }
+    }
+    
+    if (state.replay.state == Replay_State_WRITE) {
+      win32_replay_save_input(game_input, game_memory);
+    } else if (state.replay.state == Replay_State_PLAY) {
+      game_input = win32_replay_get_next_input(game_memory);
+    }
+    
+    game_update(game_screen, game_memory, &game_input, state.dt, platform);
+    
+    if (state.game_sound_buffer.count) {
+      win32_fill_audio_buffer(&state.sound, &state.game_sound_buffer);
+    }
+    
+    
+    f64 current_time = win32_get_time();
+    f32 time_used = (f32)(current_time - time_frame_start);
+    
+    //state.dt = (f32)(current_time - last_time);
+    state.dt = 1.0f/TARGET_FPS;
+    
+    
+    u64 current_cycles = __rdtsc();
+    u64 cycles_per_frame = current_cycles - last_cycles;
+    u64 cycles_used = current_cycles - cycles_frame_start;
+    
+    last_time = current_time;
+    last_cycles = current_cycles;
+    
+    SwapBuffers(device_context);
+  }
+  
+  return 0;
+}
+

@@ -2,14 +2,59 @@
 #include <lvl5_files.h>
 #include "font.c"
 #include "renderer.c"
-#include "editor.c"
+#include "buffer.c"
+#include <stdio.h>
+
+u64 performance_frequency;
+
+f64 win32_get_time() {
+  LARGE_INTEGER time_li;
+  QueryPerformanceCounter(&time_li);
+  f64 result = ((f64)time_li.QuadPart/(f64)performance_frequency);
+  return result;
+}
 
 
+u64 cpu_clock_begin = 0;
+
+typedef enum {
+  Profiler_Event_Type_NONE,
+  Profiler_Event_Type_BEGIN,
+  Profiler_Event_Type_END,
+} Profiler_Event_Type;
+
+typedef struct {
+  u64 stamp;
+  char *name;
+  Profiler_Event_Type type;
+} Profiler_Event;
+
+Profiler_Event profiler_events[10000000];
+i32 profiler_event_count = 0;
+
+
+void _begin_profiler_event(char *name) {
+  Profiler_Event *event = profiler_events + profiler_event_count++;
+  event->stamp = __rdtsc() - cpu_clock_begin;
+  event->name = name;
+  event->type = Profiler_Event_Type_BEGIN;
+}
+
+void _end_profiler_event(char *name) {
+  Profiler_Event *event = profiler_events + profiler_event_count++;
+  event->stamp = __rdtsc() - cpu_clock_begin;
+  event->name = name;
+  event->type = Profiler_Event_Type_END;
+}
 
 os_entry_point() {
   context_init(megabytes(20));
   os_Window window = os_create_window();
   
+  
+  LARGE_INTEGER performance_frequency_li;
+  QueryPerformanceFrequency(&performance_frequency_li);
+  performance_frequency = performance_frequency_li.QuadPart;
   
   // NOTE(lvl5): windows font stuff
   Font font = load_font(const_string("c:/windows/fonts/consola.ttf"));
@@ -46,43 +91,6 @@ os_entry_point() {
     str = make_string(file_memory, file_size+1);
     str.data[file_size] = 0;
   }
-#if 0
-  String str = const_string(
-    "typedef int i32;\n"
-    "typedef struct {\n"
-    "  int foo;\n"
-    "  char *bar;\n"
-    "} Foo;\n"
-    "\n"
-    "void buffer_copy(Text_Buffer *buffer) {\n"
-    "  Foo foo = {0};\n"
-    "  i32 start = min(buffer->cursor, buffer->mark);\n"
-    "  i32 end = max(buffer->cursor, buffer->mark);\n"
-    "  buffer->exchange_count = end - start;\n"
-    "  assert(buffer->exchange_count <= MAX_EXCHANGE_COUNT);\n"
-    "  for (i32 i = 0; i < buffer->exchange_count; i++) {\n"
-    "    buffer->exchange[i] = get_buffer_char(buffer, start+i);\n"
-    "  }\n"
-    "}\n"
-    "\n"
-    "void buffer_paste(Text_Buffer *buffer) {\n"
-    "  String str = make_string(buffer->exchange, buffer->exchange_count);\n"
-    "  buffer_insert_string(buffer, str);\n"
-    "}\n"
-    "\n"
-    "void buffer_cut(Text_Buffer *buffer) {\n"
-    "  buffer_copy(buffer);\n"
-    "  i32 count = buffer->cursor - buffer->mark;\n"
-    "  if (buffer->cursor < buffer->mark) {\n"
-    "    i32 tmp = buffer->cursor;\n"
-    "    buffer->cursor = buffer->mark;\n"
-    "    buffer->mark = tmp;\n"
-    "    count *= -1;\n"
-    "  }\n"
-    "  buffer_remove_backward(buffer, count);\n"
-    "}\0");
-#endif
-  
   
   buffer_insert_string(&buffer, str);
   set_cursor(&buffer, 0);
@@ -92,11 +100,19 @@ os_entry_point() {
     OutputDebugStringA("fdsff");
   }
   
+  
   b32 running = true;
+  f64 prev_time = win32_get_time();
+  
   while (running) {
+    cpu_clock_begin = __rdtsc();
+    
+    begin_profiler_event("loop");
+    
     scratch_reset();
     os_collect_messages(window);
     
+    begin_profiler_event("input");
     os_Event event;
     while (os_pop_event(&event)) {
       switch (event.type) {
@@ -209,132 +225,41 @@ os_entry_point() {
       }
     }
     
+    end_profiler_event("input");
     
     V4 bg_color = color_u32_to_v4(0xFF272822);
     gl.ClearColor(bg_color.r, bg_color.b, bg_color.g, bg_color.a);
     gl.Clear(GL_COLOR_BUFFER_BIT);
     
     
+    V2 bottom_left = v2(-window_size.x*0.5f, -window_size.y*0.5f);
+    buffer_draw(renderer, &buffer, rect2_min_size(bottom_left, window_size));
     
-    V2 cursor_p = get_screen_position_in_buffer(&font, &buffer, buffer.cursor);
-    f32 screen_height_lines = window_size.y / font.line_spacing;
-    {
-      f32 cursor_line = -cursor_p.y / font.line_spacing;
-      f32 border_top = buffer.scroll_y + 4;
-      f32 border_bottom = buffer.scroll_y + screen_height_lines - 4;
+    
+    
+    end_profiler_event("loop");
+    
+    if (profiler_event_count) {
+      FILE *file;
+      errno_t err = fopen_s(&file, "profile.json", "wb");
       
-      f32 want_scroll_y = 0;
-      if (cursor_line > border_bottom) {
-        want_scroll_y = cursor_line - border_bottom;
-      } else if (cursor_line < border_top && buffer.scroll_y > 0) {
-        want_scroll_y = cursor_line - border_top;
+      char begin[] = "[\n";
+      fwrite(begin, array_count(begin)-1, 1, file);
+      
+      for (i32 i = 0; i < profiler_event_count; i++) {
+        Profiler_Event *event = profiler_events + i;
+        char str[512];
+        i32 str_count = sprintf_s(str, 512, "  {\"name\": \"%s\", \"cat\": \"PERF\", \"ts\": %lld, \"ph\": \"%c\", \"pid\": 1, \"tid\": 1},\n", event->name, event->stamp, event->type == Profiler_Event_Type_BEGIN ? 'B' : 'E');
+        fwrite(str, str_count, 1, file);
       }
+      fseek(file, -2, SEEK_CUR);
       
-      buffer.scroll_y += want_scroll_y/4;
+      char end[] = "\n]";
+      fwrite(end, array_count(end)-1, 1, file);
+      
+      fclose(file);
     }
     
-    V2 top_left = v2(-window_size.x*0.5f, 
-                     window_size.y*0.5f);
-    
-    
-    V2 buffer_position = v2_add(top_left,
-                                v2(0, (buffer.scroll_y-1)*font.line_spacing));
-    
-    
-    draw_rect(renderer, 
-              rect2_min_size(v2_add(buffer_position, cursor_p), v2(11, font.line_spacing)), 
-              v4(0, 1, 0, 1));
-    
-    V2 mark_p = get_screen_position_in_buffer(&font, &buffer, buffer.mark);
-    draw_rect(renderer,
-              rect2_min_size(v2_add(buffer_position, mark_p), v2(font.space_width, font.line_spacing)),
-              v4(0, 1, 0, 0.4f));
-    
-    
-    
-    u32 green = 0xFFA6E22E;
-    u32 orange = 0xFFFD911F;
-    
-    
-    i32 first_visible_line = (i32)buffer.scroll_y;
-    i32 last_visible_line = (i32)(buffer.scroll_y + screen_height_lines);
-    
-    push_scratch_context(); {
-      Token *tokens = buffer_parse(&buffer);
-      
-      V2 offset = buffer_position;
-      
-      i32 token_count = (i32)sb_count(tokens);
-      
-      i32 line_index = 0;
-      i32 first_visible_token = 0;
-      while (first_visible_line > line_index) {
-        Token t = tokens[first_visible_token++];
-        if (t.kind == T_NEWLINE) {
-          line_index++;
-        }
-      }
-      
-      offset.y -= renderer->state.font->line_spacing*(f32)line_index;
-      
-      for (i32 i = first_visible_token; i < token_count; i++) {
-        Token t = tokens[i];
-        if (t.kind == T_NEWLINE) {
-          offset.x = buffer_position.x;
-          offset.y -= renderer->state.font->line_spacing;
-          line_index++;
-          if (line_index > last_visible_line) {
-            break;
-          }
-        } else if (t.kind == T_SPACE) {
-          offset.x += font.space_width;
-        } else {
-          String token_string = buffer_part_to_string(&buffer, 
-                                                      t.start, 
-                                                      t.start + t.count);
-          u32 color = 0xFFF8F8F2;
-          
-          if (t.ast_kind == A_ARGUMENT) {
-            color = orange;
-          } else if (t.ast_kind == A_FUNCTION) {
-            color = green;
-          } else if (t.ast_kind == A_TYPE) {
-            color = 0xFF66D9EF;
-          }else if ((t.kind >= T_KEYWORD_FIRST && 
-                     t.kind <= T_KEYWORD_LAST) ||
-                    (t.kind >= T_OPERATOR_FIRST && 
-                     t.kind <= T_OPERATOR_LAST)) {
-            color = 0xFFF92672;
-          } else if (t.kind == T_INT || t.kind == T_FLOAT) {
-            color = 0xFFAE81FF;
-          } else if (t.kind == T_STRING || t.kind == T_CHAR) {
-            color = 0xFFE6DB74;
-          }
-          
-          V4 color_float = color_u32_to_v4(color);
-          
-          V2 string_offset = draw_string(renderer, token_string, 
-                                         offset, color_float);
-          offset = v2_add(offset, string_offset);
-        }
-      }
-    } pop_context();
-    
-    
-    {
-      V2 rect_min = v2_add(top_left, v2(0, -(f32)font.line_spacing));
-      draw_rect(renderer,
-                rect2_min_size(rect_min, v2(window_size.x, font.line_spacing)),
-                v4(0, 0, 0, 1));
-      draw_string(renderer, const_string("fucj"), 
-                  v2_add(rect_min, v2(0, font.line_spacing)), v4(1, 1, 1, 1));
-    }
-    
-    
-#if 0    
-    String buffer_content = text_buffer_to_string(&buffer);
-    draw_string(renderer, buffer_content, v2(buffer_position.x, buffer_position.y), v4(1, 1, 1, 1));
-#endif
     
     os_blit_to_screen();
   }

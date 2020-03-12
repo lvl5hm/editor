@@ -1,0 +1,27 @@
+colors:
+	keyword = F92672
+	function = A6E22E
+    number = AE81FF
+	string = E6DB74
+	type = 66D9EF
+	regular = F8F8F2
+	background = 272822
+
+keybinds:
+	editing:
+		set_mark = ctrl+space
+		search_file = ctrl+f
+		copy = ctrl+c
+		paste = ctrl+v
+		cut = ctrl+x
+		jump_token_right = ctrl+right
+		jump_token_left = ctrl+left
+		home = home
+		end = end
+	files:
+		open = ctrl+o
+		save = ctrl+s
+
+font:
+	family = "c:/windows/fonts/consola.ttf"
+	size = 21
