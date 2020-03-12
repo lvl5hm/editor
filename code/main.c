@@ -37,12 +37,12 @@ os_entry_point() {
   init_renderer(renderer, shader, &font, window_size);
   
   
-  Text_Buffer buffer = {
-    .data = alloc_array(char, 128),
-    .capacity = 128,
-    .count = 0,
-    .cursor = 0,
-  };
+  Text_Buffer buffer = {0};
+  buffer.data = alloc_array(char, 128);
+  buffer.capacity = 128;
+  buffer.count = 0;
+  buffer.cursor = 0;
+  //arena_init(&buffer.token_arena, )
   
   
   String str;

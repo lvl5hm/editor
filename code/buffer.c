@@ -105,6 +105,13 @@ void set_cursor(Text_Buffer *b, i32 pos) {
   }
 }
 
+void buffer_changed(Text_Buffer *b) {
+  if (b->tokens) {
+    sb_free(b->tokens);
+  }
+  b->tokens = buffer_parse(b);
+}
+
 void buffer_insert_string(Text_Buffer *b, String str) {
   if (b->count + (i32)str.count > b->capacity) {
     char *old_data = b->data;
@@ -140,6 +147,7 @@ void buffer_insert_string(Text_Buffer *b, String str) {
   b->cursor += str.count;
   b->count += str.count;
   
+  buffer_changed(b);
 }
 
 void buffer_remove_backward(Text_Buffer *b, i32 count) {
@@ -150,6 +158,8 @@ void buffer_remove_backward(Text_Buffer *b, i32 count) {
   }
   b->cursor -= count;
   b->count -= count;
+  
+  buffer_changed(b);
 }
 
 void buffer_remove_forward(Text_Buffer *b, i32 count) {
@@ -159,6 +169,8 @@ void buffer_remove_forward(Text_Buffer *b, i32 count) {
     b->mark -= count;
   }
   b->count -= count;
+  
+  buffer_changed(b);
 }
 
 b32 move_cursor_direction(Text_Buffer *b, os_Keycode direction) {
@@ -306,10 +318,8 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
   i32 first_visible_token = 0;
   i32 skipped_lines = 0;
   
-  push_scratch_context();
-  Token *tokens = buffer_parse(buffer);
-  pop_context();
   
+  Token *tokens = buffer->tokens;
   
   begin_profiler_event("render");
   while (skipped_lines < first_visible_line) {

@@ -327,6 +327,7 @@ i32 skip_whitespace_backward(Parser *p, i32 offset) {
   while (p->tokens[result].kind == T_SPACE  || p->tokens[result].kind == T_NEWLINE) {
     result--;
   }
+  result = max(result, 0);
   end_profiler_event("skip_whitespace_backward");
   return result;
 }
@@ -335,9 +336,13 @@ i32 skip_whitespace_backward(Parser *p, i32 offset) {
 i32 skip_whitespace_forward(Parser *p, i32 offset) {
   begin_profiler_event("skip_whitespace_forward");
   i32 result = offset;
-  while (p->tokens[result].kind == T_SPACE  || p->tokens[result].kind == T_NEWLINE) {
+  while (p->tokens[result].kind == T_SPACE ||
+         p->tokens[result].kind == T_NEWLINE) 
+  {
     result++;
   }
+  
+  result = min(result, (i32)sb_count(p->tokens));
   end_profiler_event("skip_whitespace_backward");
   return result;
 }
@@ -362,6 +367,9 @@ Token *peek_token(Parser *p, i32 offset) {
 }
 
 void next_token(Parser *p) {
+  if (p->i >= 10835) {
+    int bre = 32;
+  }
   p->i++;
   p->i = skip_whitespace_forward(p, p->i);
   assert(p->i <= (i32)sb_count(p->tokens));

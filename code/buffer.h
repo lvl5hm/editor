@@ -3,6 +3,8 @@
 
 #define MAX_EXCHANGE_COUNT 1024
 
+typedef struct Token Token;
+
 typedef struct {
   char *data;
   i32 count;
@@ -15,11 +17,16 @@ typedef struct {
   
   char exchange[MAX_EXCHANGE_COUNT];
   i32 exchange_count;
+  
+  Token *tokens;
 } Text_Buffer;
 
 
 String buffer_part_to_string(Text_Buffer *, i32, i32);
 char get_buffer_char(Text_Buffer *, i32);
+
+
+
 
 
 

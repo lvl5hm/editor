@@ -196,12 +196,12 @@ typedef enum {
   A_FUNCTION,
 } Ast_Type;
 
-typedef struct {
+struct Token {
   Token_Type kind;
   Ast_Type ast_kind;
   i32 start;
   i32 count;
-} Token;
+};
 
 
 typedef struct {

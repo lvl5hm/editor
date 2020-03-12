@@ -37,6 +37,7 @@ typedef enum {
 } Replay_State;
 
 typedef struct {
+  char *(*bar)(int);
   Replay_State state;
   
   byte *data;
