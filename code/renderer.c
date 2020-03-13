@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include <lvl5_random.h>
 
 void init_renderer(Renderer *r, GLuint shader, Font *font, V2 window_size) {
   glEnable(GL_BLEND);
@@ -103,17 +104,36 @@ void render_rotate(Renderer *r, f32 angle) {
   r->state.matrix = m4_mul_m4(r->state.matrix, m4_rotated(angle));
 }
 
-void draw_string(Renderer *r, String s, V2 pos, V4 color) {
-  render_translate(r, v2_to_v3(pos, 0));
+
+f32 measure_string_width(Renderer *r, String s) {
+  Font *font = r->state.font;
+  f32 result = 0;
+  for (u32 char_index = 0; char_index < s.count; char_index++) {
+    char first = s.data[char_index] - font->first_codepoint;
+    char second = s.data[char_index+1] - font->first_codepoint;
+    i8 advance = font->advance[first*font->codepoint_count+second];
+    result += advance;
+  }
+  return result;
+}
+
+V2 draw_string(Renderer *r, String s, V2 p, V4 color, bool scared) {
+  V3 pos = v2_to_v3(p, 0);
+  render_translate(r, pos);
+  
   Render_Item item = {
     .type = Render_Type_STRING,
     .state = r->state,
     .string = s,
   };
   item.state.color = color;
+  item.scared = scared;
   sb_push(r->items, item);
   
-  render_translate(r, v2_to_v3(v2_negate(pos), 0));
+  render_translate(r, v3_negate(pos));
+  
+  V2 result = v2(measure_string_width(r, s), 0);
+  return result;
 }
 
 void draw_rect(Renderer *r, Rect2 rect, V4 color) {
@@ -126,7 +146,14 @@ void draw_rect(Renderer *r, Rect2 rect, V4 color) {
   sb_push(r->items, item);
 }
 
+
 void renderer_output(Renderer *r) {
+  static Rand seq = {0};
+  if (seq.seed[0] == 0) {
+    seq = make_random_sequence(371284738);
+  }
+  
+  
   push_scratch_context();
   
   Quad_Instance *instances = sb_new(Quad_Instance, 10000);
@@ -134,7 +161,6 @@ void renderer_output(Renderer *r) {
   for (u32 item_index = 0; item_index < sb_count(r->items); item_index++) {
     Render_Item *item = r->items + item_index;
     Font *font = item->state.font;
-    
     
     switch (item->type) {
       case Render_Type_STRING: {
@@ -152,12 +178,34 @@ void renderer_output(Renderer *r) {
           u16 width = (u16)(rect.max.x - rect.min.x);
           u16 height = (u16)(rect.max.y - rect.min.y);
           
+          if (item->scared) {
+            origin.x += random_range(&seq, -2, 2);
+            origin.y += random_range(&seq, -2, 2);
+          }
+          
           M4 m = matrix;
+          m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
+                                            offset.y + origin.y, 
+                                            0)));
+          m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
+          
+#if 0          
+          V2 tr = v2(m.e30, m.e31);
+          m.e30 = 0;
+          m.e31 = 0;
+          m = m4_scale(m, v3(width, height, 1));
+          m = m4_translate(m, v3(tr.x + (offset.x + origin.x)*m.e00/width,
+                                 tr.y + (offset.y + origin.y)*m.e11/height,
+                                 0));
+#endif
+          
+#if 0          
           m.e30 += (offset.x + origin.x)*m.e00;
           m.e31 += (offset.y + origin.y)*m.e11;
           
           m.e00 *= width;
           m.e11 *= height;
+#endif
           
           Quad_Instance inst = {
             .matrix = m,
@@ -207,16 +255,4 @@ void renderer_output(Renderer *r) {
   gl.DrawArraysInstanced(GL_TRIANGLES, 0, 6, sb_count(instances));
   
   pop_context();
-}
-
-f32 measure_string_width(Renderer *r, String s) {
-  Font *font = r->state.font;
-  f32 result = 0;
-  for (u32 char_index = 0; char_index < s.count; char_index++) {
-    char first = s.data[char_index] - font->first_codepoint;
-    char second = s.data[char_index+1] - font->first_codepoint;
-    i8 advance = font->advance[first*font->codepoint_count+second];
-    result += advance;
-  }
-  return result;
 }

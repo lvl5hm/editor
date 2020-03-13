@@ -224,16 +224,30 @@ Token *buffer_tokenize(Text_Buffer *b) {
       
       case '/': {
         if (get(1) == '/') {
-          skip(2);
+          eat();
+          eat();
           while (get(0) != '\n') {
-            skip(1);
+            eat();
           }
+          end(T_COMMENT);
         } else if (get(1) == '*') {
-          skip(2);
+          eat();
+          eat();
           while (!(get(0) == '*' && get(1) == '/')) {
-            skip(1);
+            if (get(0) == '\n') {
+              end_no_continue(T_COMMENT);
+              eat();
+              end_no_continue(T_NEWLINE);
+            } else if (get(0) == '\0') {
+              end_no_continue(T_COMMENT);
+              goto end;
+            } else {
+              eat();
+            }
           }
-          skip(2);
+          eat();
+          eat();
+          end(T_COMMENT);
         } else {
           eat();
           if (get(0) == '=') {
@@ -287,7 +301,7 @@ Token *buffer_tokenize(Text_Buffer *b) {
       case3('-', T_MINUS, '=', T_ASSIGN_MINUS, '>', T_ARROW);
       case3('.', T_DOT, '.', T_DOUBLE_DOT, '.', T_TRIPLE_DOT);
       case3('>', T_GREATER, '=', T_GREATER_EQUALS, '>', T_RSHIFT);
-      case3('<', T_LESS, '=', T_LESS_EQUALS, '>', T_LSHIFT);
+      case3('<', T_LESS, '=', T_LESS_EQUALS, '<', T_LSHIFT);
       case3('|', T_BIT_OR, '|', T_OR, '=', T_ASSIGN_BIT_OR);
       case3('&', T_BIT_AND, '&', T_AND, '=', T_ASSIGN_BIT_AND);
       

@@ -98,6 +98,7 @@ typedef enum {
   T_FLOAT,
   T_STRING,
   T_CHAR,
+  T_COMMENT,
   
   T_SPACE,
   T_NEWLINE,

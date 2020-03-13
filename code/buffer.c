@@ -306,7 +306,7 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
     
     V2 top_left = v2(rect.min.x, rect.max.y + buffer->scroll_y*line_spacing);
     draw_rect(renderer, 
-              rect2_min_size(v2_add(top_left, cursor_p), v2(11, line_spacing)), 
+              rect2_min_size(v2_add(top_left, cursor_p), v2(font->space_width, line_spacing)), 
               v4(0, 1, 0, 1));
     
     V2 mark_p = get_screen_position_in_buffer(font, buffer, buffer->mark);
@@ -363,6 +363,7 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
       u32 violet = 0xFFAE81FF;
       u32 yellow = 0xFFE6DB74;
       u32 white = 0xFFF8F8F2;
+      u32 grey = 0xFF88846F;
       
       u32 color = white;
       
@@ -383,14 +384,17 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
                  t.kind == T_CHAR ||
                  t.ast_kind == A_ENUM_MEMBER) {
         color = yellow;
+      } else if (t.kind == T_COMMENT) {
+        color = grey;
       }
       
       V4 color_float = color_u32_to_v4(color);
       
-      draw_string(renderer, token_string, 
-                  offset, color_float);
-      f32 string_offset = measure_string_width(renderer, token_string);
-      offset.x += string_offset;
+      bool scared = t.start <= buffer->cursor && t.start+t.count >= buffer->cursor;
+      
+      V2 string_offset = draw_string(renderer, token_string, 
+                                     offset, color_float, scared);
+      offset.x += string_offset.x;
     }
   }
   

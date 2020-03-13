@@ -27,6 +27,7 @@ typedef struct {
     String string;
     Rect2 rect;
   };
+  bool scared;
   Renderer_State state;
   Render_Type type;
 } Render_Item;
