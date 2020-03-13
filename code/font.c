@@ -195,6 +195,9 @@ Font load_font(String file_name, String font_name_str, i32 font_size) {
       codepoint_bitmaps[codepoint_index] = bmp;
       
       ABC abc = abcs[codepoint_index];
+      if (codepoint_index == 0) {
+        i32 djefj = 32;
+      }
       
       i8 total_width = (i8)(abc.abcA + abc.abcB + abc.abcC);
       font.advance[codepoint_index] = total_width;

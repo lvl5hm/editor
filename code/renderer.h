@@ -1,6 +1,7 @@
 #ifndef RENDERER_H
 #include "font.h"
 #include <lvl5_stretchy_buffer.h>
+#include "parser.h"
 
 typedef struct Quad_Instance {
   u16 texture_x;
@@ -20,14 +21,22 @@ typedef struct {
 typedef enum {
   Render_Type_STRING,
   Render_Type_RECT,
+  Render_Type_TOKEN,
 } Render_Type;
 
 typedef struct {
   union {
-    String string;
-    Rect2 rect;
+    struct {
+      String string;
+      bool scared;
+    } string;
+    struct {
+      Rect2 rect;
+    } rect;
+    struct {
+      Token *token;
+    } token;
   };
-  bool scared;
   Renderer_State state;
   Render_Type type;
 } Render_Item;

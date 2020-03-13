@@ -16,7 +16,6 @@ typedef struct {
   i8 *advance;
   i8 *kerning;
   i8 line_spacing;
-  i8 space_width;
 } Font;
 
 

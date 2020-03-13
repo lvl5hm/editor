@@ -288,7 +288,9 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
   i32 first_visible_line = (i32)buffer->scroll_y;
   i32 height_lines = (i32)(rect_size.y / line_spacing);
   
+  
   {
+    // draw cursor and marker
     V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
     f32 cursor_line = -cursor_p.y / font->line_spacing;
     f32 border_top = buffer->scroll_y + PADDING;
@@ -304,13 +306,30 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
     
     
     V2 top_left = v2(rect.min.x, rect.max.y + buffer->scroll_y*line_spacing);
+    
+    
+    char cursor_char = get_buffer_char(buffer, buffer->cursor);
+    i8 cursor_width;
+    if (cursor_char >= font->first_codepoint && cursor_char < font->first_codepoint + font->codepoint_count) {
+      cursor_width = font_get_advance(font, cursor_char,
+                                      get_buffer_char(buffer, buffer->cursor+1));
+    } else {
+      cursor_width = font_get_advance(font, ' ', 0);
+    }
+    
+    
     draw_rect(renderer, 
-              rect2_min_size(v2_add(top_left, cursor_p), v2(font->space_width, line_spacing)), 
+              rect2_min_size(v2_add(top_left, cursor_p), v2(cursor_width, line_spacing)), 
               v4(0, 1, 0, 1));
     
+    
+    i8 mark_width = font_get_advance(font, 
+                                     get_buffer_char(buffer, buffer->mark),
+                                     get_buffer_char(buffer, buffer->mark+1));
     V2 mark_p = get_screen_position_in_buffer(font, buffer, buffer->mark);
     draw_rect(renderer,
-              rect2_min_size(v2_add(top_left, mark_p), v2(font->space_width, line_spacing)),
+              rect2_min_size(v2_add(top_left, mark_p), 
+                             v2(mark_width, line_spacing)),
               v4(0, 1, 0, 0.4f));
   }
   
@@ -339,22 +358,16 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
        token_index < token_count;
        token_index++) 
   {
-    Token t = tokens[token_index];
+    Token *t = tokens + token_index;
     
-    if (t.kind == T_NEWLINE) {
+    if (t->kind == T_NEWLINE) {
       offset.x = rect.min.x;
       offset.y -= line_spacing;
       line_index++;
       if (line_index > height_lines) {
         break;
       }
-    } else if (t.kind == T_SPACE) {
-      offset.x += font->space_width;
     } else {
-      String token_string = buffer_part_to_string(buffer, 
-                                                  t.start, 
-                                                  t.start + t.count);
-      
       u32 green = 0xFFA6E22E;
       u32 orange = 0xFFFD911F;
       u32 red = 0xFFF92672;
@@ -366,34 +379,40 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
       
       u32 color = white;
       
-      if (t.ast_kind == A_ARGUMENT) {
+      if (t->ast_kind == A_ARGUMENT) {
         color = orange;
-      } else if (t.ast_kind == A_FUNCTION) {
+      } else if (t->ast_kind == A_FUNCTION) {
         color = green;
-      } else if (t.ast_kind == A_TYPE) {
+      } else if (t->ast_kind == A_TYPE) {
         color = cyan;
-      }else if ((t.kind >= T_KEYWORD_FIRST && 
-                 t.kind <= T_KEYWORD_LAST) ||
-                (t.kind >= T_OPERATOR_FIRST && 
-                 t.kind <= T_OPERATOR_LAST)) {
+      }else if ((t->kind >= T_KEYWORD_FIRST && 
+                 t->kind <= T_KEYWORD_LAST) ||
+                (t->kind >= T_OPERATOR_FIRST && 
+                 t->kind <= T_OPERATOR_LAST)) 
+      {
         color = red;
-      } else if (t.ast_kind == A_MACRO || t.kind == T_INT || t.kind == T_FLOAT) {
+      } else if (t->ast_kind == A_MACRO || 
+                 t->kind == T_INT || 
+                 t->kind == T_FLOAT) 
+      {
         color = violet;
-      } else if (t.kind == T_STRING ||
-                 t.kind == T_CHAR ||
-                 t.ast_kind == A_ENUM_MEMBER) {
+      } else if (t->kind == T_STRING ||
+                 t->kind == T_CHAR ||
+                 t->ast_kind == A_ENUM_MEMBER) {
         color = yellow;
-      } else if (t.kind == T_COMMENT) {
+      } else if (t->kind == T_COMMENT) {
         color = grey;
       }
       
       V4 color_float = color_u32_to_v4(color);
       
-      bool scared = t.start <= buffer->cursor && t.start+t.count >= buffer->cursor;
+      bool scared = t->start <= buffer->cursor && t->start+t->count > buffer->cursor;
       
-      V2 string_offset = draw_string(renderer, token_string, 
-                                     offset, color_float, scared);
-      offset.x += string_offset.x;
+      String token_string = buffer_part_to_string(buffer, 
+                                                  t->start, 
+                                                  t->start + t->count);
+      draw_string(renderer, token_string, offset, color_float, false);
+      offset.x += measure_string_width(renderer, token_string);
     }
   }
   

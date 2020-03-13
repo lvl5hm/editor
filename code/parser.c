@@ -2,8 +2,10 @@
 
 
 
+// token strings always include one additional char for kerning
 String token_to_string(Text_Buffer *b, Token *t) {
-  String result = buffer_part_to_string(b, t->start, t->start+t->count);
+  String result = buffer_part_to_string(b, t->start, t->start + t->count + 1);
+  result.count--;
   return result;
 }
 

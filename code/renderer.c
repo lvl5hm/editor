@@ -116,23 +116,22 @@ f32 measure_string_width(Renderer *r, String s) {
   return result;
 }
 
-V2 draw_string(Renderer *r, String s, V2 p, V4 color, bool scared) {
+
+// strings drawn with this MUST have an extra char of padding AFTER count
+void draw_string(Renderer *r, String s, V2 p, V4 color, bool scared) {
   V3 pos = v2_to_v3(p, 0);
   render_translate(r, pos);
   
   Render_Item item = {
     .type = Render_Type_STRING,
     .state = r->state,
-    .string = s,
   };
   item.state.color = color;
-  item.scared = scared;
+  item.string.string = s;
+  item.string.scared = scared;
   sb_push(r->items, item);
   
   render_translate(r, v3_negate(pos));
-  
-  V2 result = v2(measure_string_width(r, s), 0);
-  return result;
 }
 
 void draw_rect(Renderer *r, Rect2 rect, V4 color) {
@@ -164,10 +163,10 @@ void renderer_output(Renderer *r) {
     switch (item->type) {
       case Render_Type_STRING: {
         M4 matrix = item->state.matrix;
-        String s = item->string;
+        String s = item->string.string;
         V2 offset = v2_zero();
         
-        for (u32 char_index = 0; char_index < s.count-1; char_index++) {
+        for (u32 char_index = 0; char_index < s.count; char_index++) {
           char first = s.data[char_index] - font->first_codepoint;
           char second = s.data[char_index+1] - font->first_codepoint;
           
@@ -177,7 +176,7 @@ void renderer_output(Renderer *r) {
           u16 width = (u16)(rect.max.x - rect.min.x);
           u16 height = (u16)(rect.max.y - rect.min.y);
           
-          if (item->scared) {
+          if (item->string.scared) {
             origin.x += random_range(&seq, -2, 2);
             origin.y += random_range(&seq, -2, 2);
           }
@@ -200,47 +199,15 @@ void renderer_output(Renderer *r) {
           
           sb_push(instances, inst);
           
+          // token strings are guaranteed to have one additional char
+          // in the end for kerning
           i8 advance = font_get_advance(font, s.data[char_index], s.data[char_index+1]);
           offset.x += advance;
-        }
-        {
-          i32 char_index = s.count - 1;
-          char first = s.data[char_index] - font->first_codepoint;
-          char second = s.data[char_index+1] - font->first_codepoint;
-          
-          Rect2i rect = font->atlas.rects[first];
-          V2 origin = font->origins[first];
-          
-          u16 width = (u16)(rect.max.x - rect.min.x);
-          u16 height = (u16)(rect.max.y - rect.min.y);
-          
-          if (item->scared) {
-            origin.x += random_range(&seq, -2, 2);
-            origin.y += random_range(&seq, -2, 2);
-          }
-          
-          M4 m = matrix;
-          m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
-                                            offset.y + origin.y, 
-                                            0)));
-          m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
-          
-          
-          Quad_Instance inst = {
-            .matrix = m,
-            .texture_x = (u16)rect.min.x,
-            .texture_y = (u16)rect.min.y,
-            .texture_w = width,
-            .texture_h = height,
-            .color = color_v4_to_opengl_u32(item->state.color),
-          };
-          
-          sb_push(instances, inst);
         }
       } break;
       
       case Render_Type_RECT: {
-        Rect2 rect = item->rect;
+        Rect2 rect = item->rect.rect;
         
         V2 size = rect2_get_size(rect);
         
