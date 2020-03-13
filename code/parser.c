@@ -389,16 +389,10 @@ bool accept_token(Parser *p, Token_Type kind) {
 
 
 
-void add_type(Parser *p, String name) {
-  Symbol s = (Symbol){ .name = name, .kind = A_TYPE };
+void add_symbol(Parser *p, String name, Ast_Type kind) {
+  Symbol s = (Symbol){ .name = name, .kind = kind };
   sb_push(p->symbols, s);
 }
-
-void add_function(Parser *p, String name) {
-  Symbol s = (Symbol){ .name = name, .kind = A_FUNCTION };
-  sb_push(p->symbols, s);
-}
-
 
 
 void match_brace(Parser *p, Token_Type left, Token_Type right) {
@@ -453,6 +447,24 @@ Token *parse_declarator(Parser *, bool);
 bool parse_decl_specifier(Parser *);
 bool parse_decl(Parser *);
 
+
+void parse_misc(Parser *p) {
+  Token *t = peek_token(p, 0);
+  if (t->kind == T_NAME) {
+    Symbol *s = get_symbol(p, t);
+    if (s) {
+      if (s->kind == A_FUNCTION) {
+        t->ast_kind = A_FUNCTION;
+      } else if (s->kind == A_MACRO) {
+        t->ast_kind = A_MACRO;
+      } else if (s->kind == A_ENUM_MEMBER) {
+        t->ast_kind = A_ENUM_MEMBER;
+      }
+    }
+  }
+  next_token(p);
+}
+
 Token *parse_direct_declarator(Parser *p, bool is_typedef) {
   Token *result = null;
   
@@ -461,7 +473,7 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
     
     if (is_typedef) {
       // token_to_string is scratch
-      add_type(p, token_to_string(p->buffer, result));
+      add_symbol(p, token_to_string(p->buffer, result), A_TYPE);
       result->ast_kind = A_TYPE;
     }
   } else if (accept_token(p, T_LPAREN)) {
@@ -470,12 +482,14 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
   }
   
   if (accept_token(p, T_LBRACKET)) {
-    match_brace(p, T_LBRACKET, T_RBRACKET);
+    while (!accept_token(p, T_RBRACKET)) {
+      parse_misc(p);
+    }
   } else if (accept_token(p, T_LPAREN)) {
     // function decl
     if (!is_typedef) {
       result->ast_kind = A_FUNCTION;
-      add_function(p, token_to_string(p->buffer, result));
+      add_symbol(p, token_to_string(p->buffer, result), A_FUNCTION);
     }
     if (!accept_token(p, T_RPAREN)) {
       do {
@@ -492,18 +506,6 @@ Token *parse_declarator(Parser *p, bool is_typedef) {
   accept_token(p, T_STAR);
   return parse_direct_declarator(p, is_typedef);
 } 
-
-
-void parse_misc(Parser *p) {
-  Token *t = peek_token(p, 0);
-  if (t->kind == T_NAME) {
-    Symbol *s = get_symbol(p, t);
-    if (s && s->kind == A_FUNCTION) {
-      t->ast_kind = A_FUNCTION;
-    }
-  }
-  next_token(p);
-}
 
 
 bool parse_initializer(Parser *p) {
@@ -539,7 +541,7 @@ bool parse_struct_specifier(Parser *p) {
       Token *struct_name = peek_token(p, -1);
       struct_name->ast_kind = A_TYPE;
       // token_to_string is scratch
-      add_type(p, token_to_string(p->buffer, struct_name));
+      add_symbol(p, token_to_string(p->buffer, struct_name), A_TYPE);
       has_name = true;
     }
     
@@ -552,7 +554,7 @@ bool parse_struct_specifier(Parser *p) {
           } while (accept_token(p, T_COMMA));
           accept_token(p, T_SEMI);
         } else {
-          next_token(p);
+          parse_misc(p);
         }
       }
       has_body = true;
@@ -583,20 +585,23 @@ bool parse_enum_specifier(Parser *p) {
       Token *struct_name = peek_token(p, -1);
       struct_name->ast_kind = A_TYPE;
       // token_to_string is scratch
-      add_type(p, token_to_string(p->buffer, struct_name));
+      add_symbol(p, token_to_string(p->buffer, struct_name), A_TYPE);
       has_name = true;
     }
     
     if (accept_token(p, T_LCURLY)) {
       while (!accept_token(p, T_RCURLY)) {
         if (accept_token(p, T_NAME)) {
+          Token *name = peek_token(p, -1);
+          name->ast_kind = A_ENUM_MEMBER;
+          add_symbol(p, token_to_string(p->buffer, name), A_ENUM_MEMBER);
           if (accept_token(p, T_ASSIGN)) {
             while (!accept_token(p, T_COMMA)) {
               next_token(p);
             }
           }
         } else {
-          next_token(p);
+          parse_misc(p);
         }
       }
       has_body = true;
@@ -665,10 +670,34 @@ bool parse_decl(Parser *p) {
 void parse_program(Parser *p) {
   begin_profiler_event("parse");
   while (p->i < (i32)sb_count(p->tokens)) {
-    if (parse_decl(p)) {
+    Token *t = peek_token(p, 0);
+    switch (t->kind) {
+      case T_POUND: {
+        if (string_compare(token_to_string(p->buffer, t),
+                           const_string("#define"))) {
+          next_token(p);
+          Token *macro = peek_token(p, 0);
+          macro->ast_kind = A_MACRO;
+          add_symbol(p, token_to_string(p->buffer, macro), A_MACRO);
+          next_token(p);
+          
+          if (parse_decl(p)) {
+            
+          } else {
+            parse_misc(p);
+          }
+        } else {
+          parse_misc(p);
+        }
+      } break;
       
-    } else {
-      parse_misc(p);
+      default: {
+        if (parse_decl(p)) {
+          
+        } else {
+          parse_misc(p);
+        }
+      } break;
     }
   }
   end_profiler_event("parse");
@@ -682,13 +711,13 @@ Token *buffer_parse(Text_Buffer *b) {
     .symbols = sb_new(Symbol, 32),
   };
   Parser *p = &parser;
-  add_type(p, const_string("char"));
-  add_type(p, const_string("void"));
-  add_type(p, const_string("short"));
-  add_type(p, const_string("int"));
-  add_type(p, const_string("long"));
-  add_type(p, const_string("float"));
-  add_type(p, const_string("double"));
+  add_symbol(p, const_string("char"), A_TYPE);
+  add_symbol(p, const_string("void"), A_TYPE);
+  add_symbol(p, const_string("short"), A_TYPE);
+  add_symbol(p, const_string("int"), A_TYPE);
+  add_symbol(p, const_string("long"), A_TYPE);
+  add_symbol(p, const_string("float"), A_TYPE);
+  add_symbol(p, const_string("double"), A_TYPE);
   
   
   parse_program(&parser);

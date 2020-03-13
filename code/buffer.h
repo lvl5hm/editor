@@ -29,7 +29,6 @@ char get_buffer_char(Text_Buffer *, i32);
 
 
 
-
 typedef enum {
   Profiler_Event_Type_NONE,
   Profiler_Event_Type_BEGIN,
@@ -42,7 +41,6 @@ typedef struct {
   Profiler_Event_Type type;
 } Profiler_Event;
 
-u64 cpu_clock_begin = 0;
 Profiler_Event profiler_events[10000000];
 i32 profiler_event_count = 0;
 
@@ -50,15 +48,23 @@ i32 profiler_event_count = 0;
 void add_profiler_event(char *name, Profiler_Event_Type type) {
   if (profiler_event_count < array_count(profiler_events)) {
     Profiler_Event *event = profiler_events + profiler_event_count++;
-    event->stamp = __rdtsc() - cpu_clock_begin;
+    event->stamp = __rdtsc();
     event->name = name;
     event->type = type;
   }
 }
 
 
+#ifdef EDITOR_SLOW
+
 #define begin_profiler_event(name) add_profiler_event(name, Profiler_Event_Type_BEGIN)
 #define end_profiler_event(name) add_profiler_event(name, Profiler_Event_Type_END)
+
+#else
+#define begin_profiler_event(name)
+#define end_profiler_event(name)
+
+#endif
 
 #define EDITOR_H
 #endif

@@ -194,6 +194,8 @@ typedef enum {
   A_TYPE,
   A_ARGUMENT,
   A_FUNCTION,
+  A_MACRO,
+  A_ENUM_MEMBER,
 } Ast_Type;
 
 struct Token {

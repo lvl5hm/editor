@@ -1,4 +1,8 @@
-void foo(int *bar, char baz);
+#define THING 32
+
+void foo(int *bar, char baz) {
+  return THING;
+}
 
 typedef struct {
   i32 buffer_sample_count;

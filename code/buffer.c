@@ -358,31 +358,39 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
       
       u32 green = 0xFFA6E22E;
       u32 orange = 0xFFFD911F;
+      u32 red = 0xFFF92672;
+      u32 cyan = 0xFF66D9EF;
+      u32 violet = 0xFFAE81FF;
+      u32 yellow = 0xFFE6DB74;
+      u32 white = 0xFFF8F8F2;
       
-      u32 color = 0xFFF8F8F2;
+      u32 color = white;
       
       if (t.ast_kind == A_ARGUMENT) {
         color = orange;
       } else if (t.ast_kind == A_FUNCTION) {
         color = green;
       } else if (t.ast_kind == A_TYPE) {
-        color = 0xFF66D9EF;
+        color = cyan;
       }else if ((t.kind >= T_KEYWORD_FIRST && 
                  t.kind <= T_KEYWORD_LAST) ||
                 (t.kind >= T_OPERATOR_FIRST && 
                  t.kind <= T_OPERATOR_LAST)) {
-        color = 0xFFF92672;
-      } else if (t.kind == T_INT || t.kind == T_FLOAT) {
-        color = 0xFFAE81FF;
-      } else if (t.kind == T_STRING || t.kind == T_CHAR) {
-        color = 0xFFE6DB74;
+        color = red;
+      } else if (t.ast_kind == A_MACRO || t.kind == T_INT || t.kind == T_FLOAT) {
+        color = violet;
+      } else if (t.kind == T_STRING ||
+                 t.kind == T_CHAR ||
+                 t.ast_kind == A_ENUM_MEMBER) {
+        color = yellow;
       }
       
       V4 color_float = color_u32_to_v4(color);
       
-      V2 string_offset = draw_string(renderer, token_string, 
-                                     offset, color_float);
-      offset = v2_add(offset, string_offset);
+      draw_string(renderer, token_string, 
+                  offset, color_float);
+      f32 string_offset = measure_string_width(renderer, token_string);
+      offset.x += string_offset;
     }
   }
   

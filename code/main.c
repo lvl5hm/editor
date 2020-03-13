@@ -27,7 +27,7 @@ os_entry_point() {
   performance_frequency = performance_frequency_li.QuadPart;
   
   // NOTE(lvl5): windows font stuff
-  Font font = load_font(const_string("c:/windows/fonts/consola.ttf"));
+  Font font = load_font(const_string("inconsolata.ttf"));
   GLuint shader = gl_create_shader_from_file(const_string("shader.glsl"));
   Renderer _renderer = {0};
   Renderer *renderer = &_renderer;
@@ -75,8 +75,6 @@ os_entry_point() {
   f64 prev_time = win32_get_time();
   
   while (running) {
-    cpu_clock_begin = __rdtsc();
-    
     begin_profiler_event("loop");
     
     scratch_reset();
@@ -202,9 +200,14 @@ os_entry_point() {
     gl.Clear(GL_COLOR_BUFFER_BIT);
     
     
+    renderer->state.matrix = m4_identity();
+    sb_count(renderer->items) = 0;
+    
+    render_scale(renderer, v3(2/window_size.x, 2/window_size.y, 1));
+    
     V2 bottom_left = v2(-window_size.x*0.5f, -window_size.y*0.5f);
     buffer_draw(renderer, &buffer, rect2_min_size(bottom_left, window_size));
-    
+    renderer_output(renderer);
     
     
     end_profiler_event("loop");
