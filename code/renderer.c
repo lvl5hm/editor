@@ -108,12 +108,11 @@ void render_rotate(Renderer *r, f32 angle) {
 f32 measure_string_width(Renderer *r, String s) {
   Font *font = r->state.font;
   f32 result = 0;
-  for (u32 char_index = 0; char_index < s.count; char_index++) {
-    char first = s.data[char_index] - font->first_codepoint;
-    char second = s.data[char_index+1] - font->first_codepoint;
-    i8 advance = font->advance[first*font->codepoint_count+second];
-    result += advance;
+  for (u32 char_index = 0; char_index < s.count-1; char_index++) {
+    result += font_get_advance(font, s.data[char_index], s.data[char_index+1]);
   }
+  result += font_get_advance(font, s.data[s.count-1], 0);
+  
   return result;
 }
 
@@ -168,7 +167,7 @@ void renderer_output(Renderer *r) {
         String s = item->string;
         V2 offset = v2_zero();
         
-        for (u32 char_index = 0; char_index < s.count; char_index++) {
+        for (u32 char_index = 0; char_index < s.count-1; char_index++) {
           char first = s.data[char_index] - font->first_codepoint;
           char second = s.data[char_index+1] - font->first_codepoint;
           
@@ -189,23 +188,6 @@ void renderer_output(Renderer *r) {
                                             0)));
           m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
           
-#if 0          
-          V2 tr = v2(m.e30, m.e31);
-          m.e30 = 0;
-          m.e31 = 0;
-          m = m4_scale(m, v3(width, height, 1));
-          m = m4_translate(m, v3(tr.x + (offset.x + origin.x)*m.e00/width,
-                                 tr.y + (offset.y + origin.y)*m.e11/height,
-                                 0));
-#endif
-          
-#if 0          
-          m.e30 += (offset.x + origin.x)*m.e00;
-          m.e31 += (offset.y + origin.y)*m.e11;
-          
-          m.e00 *= width;
-          m.e11 *= height;
-#endif
           
           Quad_Instance inst = {
             .matrix = m,
@@ -218,8 +200,42 @@ void renderer_output(Renderer *r) {
           
           sb_push(instances, inst);
           
-          i8 advance = font->advance[first*font->codepoint_count+second];
+          i8 advance = font_get_advance(font, s.data[char_index], s.data[char_index+1]);
           offset.x += advance;
+        }
+        {
+          i32 char_index = s.count - 1;
+          char first = s.data[char_index] - font->first_codepoint;
+          char second = s.data[char_index+1] - font->first_codepoint;
+          
+          Rect2i rect = font->atlas.rects[first];
+          V2 origin = font->origins[first];
+          
+          u16 width = (u16)(rect.max.x - rect.min.x);
+          u16 height = (u16)(rect.max.y - rect.min.y);
+          
+          if (item->scared) {
+            origin.x += random_range(&seq, -2, 2);
+            origin.y += random_range(&seq, -2, 2);
+          }
+          
+          M4 m = matrix;
+          m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
+                                            offset.y + origin.y, 
+                                            0)));
+          m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
+          
+          
+          Quad_Instance inst = {
+            .matrix = m,
+            .texture_x = (u16)rect.min.x,
+            .texture_y = (u16)rect.min.y,
+            .texture_w = width,
+            .texture_h = height,
+            .color = color_v4_to_opengl_u32(item->state.color),
+          };
+          
+          sb_push(instances, inst);
         }
       } break;
       

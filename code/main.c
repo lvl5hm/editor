@@ -27,7 +27,10 @@ os_entry_point() {
   performance_frequency = performance_frequency_li.QuadPart;
   
   // NOTE(lvl5): windows font stuff
-  Font font = load_font(const_string("inconsolata.ttf"));
+  //Font font = load_font(const_string("inconsolata.ttf"));
+  Font font = load_font(const_string("inconsolata.ttf"), 
+                        const_string("Consola"),
+                        40);
   GLuint shader = gl_create_shader_from_file(const_string("shader.glsl"));
   Renderer _renderer = {0};
   Renderer *renderer = &_renderer;

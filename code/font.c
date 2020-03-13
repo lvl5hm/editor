@@ -59,18 +59,17 @@ Texture_Atlas texture_atlas_make_from_bitmaps(Bitmap *bitmaps, i32 bitmap_count,
 }
 
 
-Font load_font(String file_name) {
+Font load_font(String file_name, String font_name_str, i32 font_size) {
   Font font = {0};
   
   {
     HDC device_context = CreateCompatibleDC(GetDC(null));
-    char *font_name = "Consolas";
+    char *font_name = to_c_string(font_name_str);
     b32 font_added = AddFontResourceExA(to_c_string(file_name), FR_PRIVATE, 0);
     assert(font_added);
     
-    int font_height = 22;
     HFONT win_font = CreateFontA(
-      font_height, 0,
+      font_size, 0,
       0, 0,
       FW_NORMAL, //weight
       FALSE, //italic
@@ -110,9 +109,13 @@ Font load_font(String file_name) {
     SelectObject(device_context, font_buffer);
     SelectObject(device_context, win_font);
     
-    TEXTMETRIC metric;
-    b32 got_metrics = GetTextMetrics(device_context, &metric);
-    assert(got_metrics);
+    
+    b32 metrics_bytes = GetOutlineTextMetrics(device_context, 0, null);
+    OUTLINETEXTMETRIC *metric = (OUTLINETEXTMETRIC *)scratch_push_array(byte, metrics_bytes);
+    GetOutlineTextMetrics(device_context, metrics_bytes, metric);
+    
+    
+    
     SetBkColor(device_context, RGB(0, 0, 0));
     
     char first_codepoint = ' ';
@@ -124,11 +127,13 @@ Font load_font(String file_name) {
     
     font = (Font){
       .first_codepoint = first_codepoint,
-      .advance = alloc_array(i8, codepoint_count*codepoint_count),
+      .advance = alloc_array(i8, codepoint_count),
+      .kerning = alloc_array(i8, codepoint_count*codepoint_count),
       .origins = alloc_array(V2, codepoint_count),
       .codepoint_count = codepoint_count,
     };
-    zero_memory_slow_(font.advance, sizeof(i8)*codepoint_count*codepoint_count);
+    zero_memory_slow_(font.advance, sizeof(i8)*codepoint_count);
+    zero_memory_slow_(font.kerning, sizeof(i8)*codepoint_count*codepoint_count);
     
     ABC *abcs = scratch_push_array(ABC, font.codepoint_count);
     GetCharABCWidthsW(device_context, font.first_codepoint,
@@ -192,16 +197,8 @@ Font load_font(String file_name) {
       ABC abc = abcs[codepoint_index];
       
       i8 total_width = (i8)(abc.abcA + abc.abcB + abc.abcC);
-      for (i32 other_index = 0; other_index < codepoint_count; other_index++) {
-        font.advance[codepoint_index*codepoint_count + other_index] = total_width;
-      }
+      font.advance[codepoint_index] = total_width;
       font.origins[codepoint_index] = v2((f32)min_x, (f32)min_y - font_buffer_height);
-      
-      // space + newline have no advance by default
-      font.space_width = font.advance[(' ' - font.first_codepoint)*codepoint_count +
-          ('L' - font.first_codepoint)];
-      font.advance[(' ' - font.first_codepoint)*codepoint_count +
-          ('\n' - font.first_codepoint)] = font.space_width; 
     }
     
     Bitmap white_bitmap = make_empty_bitmap(2, 2);
@@ -211,7 +208,7 @@ Font load_font(String file_name) {
     white_bitmap.data[3] = 0xFFFFFFFF;
     codepoint_bitmaps[codepoint_count] = white_bitmap;
     
-    font.line_spacing = (i8)font_height;
+    font.line_spacing = (i8)(metric->otmLineGap + metric->otmAscent - metric->otmDescent);
     font.atlas = texture_atlas_make_from_bitmaps(codepoint_bitmaps,
                                                  codepoint_count+1,
                                                  512);
@@ -230,9 +227,28 @@ Font load_font(String file_name) {
       char second = (char)pair.wSecond - font.first_codepoint;
       assert(pair.iKernAmount < I8_MAX);
       assert(pair.iKernAmount > I8_MIN);
-      font.advance[first*codepoint_count + second] += (i8)pair.iKernAmount;
+      font.kerning[first*codepoint_count + second] += (i8)pair.iKernAmount;
     }
   }
   
   return font;
+}
+
+i32 font_get_char(Font *font, char c) {
+  assert(c >= font->first_codepoint && c <= font->first_codepoint + font->codepoint_count);
+  i32 result = c - font->first_codepoint;
+  return result;
+}
+
+i8 font_get_advance(Font *font, char a, char b) {
+  i32 a_index = font_get_char(font, a);
+  
+  i8 result = font->advance[a_index];
+  if (b >= font->first_codepoint && b <= font->first_codepoint + font->codepoint_count)
+  {
+    i32 b_index = font_get_char(font, b);
+    result += font->kerning[a_index*font->codepoint_count + b_index];
+  }
+  
+  return result;
 }

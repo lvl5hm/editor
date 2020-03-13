@@ -48,16 +48,15 @@ V2 get_screen_position_in_buffer(Font *font, Text_Buffer *b, i32 pos) {
   V2 result = v2(0, -(f32)font->line_spacing);
   
   for (i32 char_index = 0; char_index < pos; char_index++) {
-    char buffer_char = get_buffer_char(b, char_index);
-    char first = buffer_char - font->first_codepoint;
-    if (buffer_char == '\n') {
+    char first = get_buffer_char(b, char_index);
+    char second = get_buffer_char(b, char_index+1);
+    if (first == '\n') {
       result.x = 0;
       result.y -= font->line_spacing;
       continue;
     }
     
-    char second = get_buffer_char(b, char_index+1) - font->first_codepoint;
-    result.x += font->advance[first*font->codepoint_count+second];
+    result.x += font_get_advance(font, first, second);
   }
   return result;
 }
