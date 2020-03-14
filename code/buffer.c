@@ -1,6 +1,8 @@
 #include "buffer.h"
 #include <lvl5_stretchy_buffer.h>
 #include "parser.c"
+#include "font.c"
+#include "renderer.c"
 
 inline i32 get_gap_count(Text_Buffer *b) {
   i32 result = b->capacity - b->count;
@@ -141,10 +143,10 @@ void buffer_insert_string(Text_Buffer *b, String str) {
   }
   
   if (b->mark > b->cursor) {
-    b->mark += str.count;
+    b->mark += (i32)str.count;
   }
-  b->cursor += str.count;
-  b->count += str.count;
+  b->cursor += (i32)str.count;
+  b->count += (i32)str.count;
   
   buffer_changed(b);
 }
@@ -314,7 +316,7 @@ void buffer_newline(Text_Buffer *buffer) {
   i32 line_start = seek_line_start(buffer, buffer->cursor);
   String indent_str = { .count = 1 };
   while (get_buffer_char(buffer, 
-                         line_start + indent_str.count-1) == ' ') {
+                         line_start + (i32)indent_str.count-1) == ' ') {
     indent_str.count++;
   }
   

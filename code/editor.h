@@ -1,5 +1,6 @@
 #ifndef EDITOR_H
 #include "buffer.h"
+#include <lvl5_os.h>
 
 typedef enum {
   Command_NONE,

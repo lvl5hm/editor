@@ -2,6 +2,7 @@
 #include "font.h"
 #include <lvl5_stretchy_buffer.h>
 #include "parser.h"
+#include <lvl5_opengl.h>
 
 typedef struct Quad_Instance {
   u16 texture_x;

@@ -1,5 +1,7 @@
 #ifndef EDITOR_H
 #include <lvl5_types.h>
+#include "font.h"
+#include <lvl5_string.h>
 
 #define MAX_EXCHANGE_COUNT 1024
 
