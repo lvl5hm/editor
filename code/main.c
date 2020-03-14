@@ -5,15 +5,16 @@
 #include "buffer.c"
 #include <stdio.h>
 
-u64 performance_frequency;
+typedef struct {
+  bool reloaded;
+  gl_Funcs gl;
+  void (*pop_event)(os_Event *event);
+  V2 (*get_window_size)();
+} Os;
 
-f64 win32_get_time() {
-  LARGE_INTEGER time_li;
-  QueryPerformanceCounter(&time_li);
-  f64 result = ((f64)time_li.QuadPart/(f64)performance_frequency);
-  return result;
+extern void editor_update(Os os, os_Input input) {
+  
 }
-
 
 
 
@@ -22,9 +23,41 @@ os_entry_point() {
   os_Window window = os_create_window();
   
   
-  LARGE_INTEGER performance_frequency_li;
-  QueryPerformanceFrequency(&performance_frequency_li);
-  performance_frequency = performance_frequency_li.QuadPart;
+#if 0  
+  Keybind keybinds[] = {
+    (Keybind){
+      .command = Command_COPY,
+      .keycode = 'C',
+      .ctrl = true,
+    },
+    (Keybind){
+      .command = Command_PASTE,
+      .keycode = 'V',
+      .ctrl = true,
+    },
+    (Keybind){
+      .command = Command_CUT,
+      .keycode = 'X',
+      .ctrl = true,
+    },
+    (Keybind){
+      .command = Command_MOVE_CURSOR_LEFT,
+      .keycode = os_Keycode_ARROW_LEFT,
+    },
+    (Keybind){
+      .command = Command_MOVE_CURSOR_RIGHT,
+      .keycode = os_Keycode_ARROW_RIGHT,
+    },
+    (Keybind){
+      .command = Command_MOVE_CURSOR_UP,
+      .keycode = os_Keycode_ARROW_UP,
+    },
+    (Keybind){
+      .command = Command_MOVE_CURSOR_DOWN,
+      .keycode = os_Keycode_ARROW_DOWN,
+    },
+  };
+#endif
   
   GLuint shader = gl_create_shader_from_file(const_string("shader.glsl"));
   Renderer _renderer = {0};
@@ -75,7 +108,6 @@ os_entry_point() {
   
   
   b32 running = true;
-  f64 prev_time = win32_get_time();
   
   while (running) {
     begin_profiler_event("loop");
