@@ -110,6 +110,7 @@ Token *buffer_tokenize(Text_Buffer *b) {
       case 0: {
         goto end;
       } break;
+      
       case '\r': {
         skip(1);
       } break;
@@ -307,7 +308,10 @@ Token *buffer_tokenize(Text_Buffer *b) {
       case3('|', T_BIT_OR, '|', T_OR, '=', T_ASSIGN_BIT_OR);
       case3('&', T_BIT_AND, '&', T_AND, '=', T_ASSIGN_BIT_AND);
       
-      default: assert(false);
+      default: {
+        eat();
+        end(T_NONE);
+      } break;
     }
   }
   
@@ -696,12 +700,6 @@ void parse_program(Parser *p) {
           macro->ast_kind = A_MACRO;
           add_symbol(p, token_to_string(p->buffer, macro), A_MACRO);
           next_token(p);
-          
-          if (parse_decl(p)) {
-            
-          } else {
-            parse_misc(p);
-          }
         } else {
           parse_misc(p);
         }

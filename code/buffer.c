@@ -310,6 +310,62 @@ void buffer_cut(Text_Buffer *buffer) {
 }
 
 
+void buffer_newline(Text_Buffer *buffer) {
+  i32 line_start = seek_line_start(buffer, buffer->cursor);
+  String indent_str = { .count = 1 };
+  while (get_buffer_char(buffer, 
+                         line_start + indent_str.count-1) == ' ') {
+    indent_str.count++;
+  }
+  
+  
+  i32 first_non_space_before = buffer->cursor;
+  while (get_buffer_char(buffer, first_non_space_before) == ' ' ||
+         get_buffer_char(buffer, first_non_space_before) == '\n') {
+    first_non_space_before--;
+  }
+  if (get_buffer_char(buffer, first_non_space_before) == '{') {
+    indent_str.count += 2;
+  }
+  
+  indent_str.data = scratch_push_array(char, indent_str.count);
+  indent_str.data[0] = '\n';
+  for (i32 i = 1; i < (i32)indent_str.count; i++) {
+    indent_str.data[i] = ' ';
+  }
+  
+  buffer_insert_string(buffer, indent_str);
+}
+
+void buffer_indent(Text_Buffer *buffer) {
+  String indent_str = make_string(scratch_push_array(char, 2), 2);
+  for (i32 i = 0; i < (i32)indent_str.count; i++) {
+    indent_str.data[i] = ' ';
+  }
+  
+  buffer_insert_string(buffer, indent_str);
+}
+
+void buffer_input_string(Text_Buffer *buffer, String str) {
+  if (str.data[0] == '}') {
+    i32 start = seek_line_start(buffer, buffer->cursor);
+    bool only_indent = true;
+    for (i32 i = start; i < buffer->cursor; i++) {
+      if (get_buffer_char(buffer, i) != ' ') {
+        only_indent = false;
+        break;
+      }
+    }
+    if (only_indent && buffer->cursor >= 2) {
+      buffer_remove_backward(buffer, 2);
+    }
+  }
+  if (str.data[0] != '\t' && 
+      str.data[0] != '\b' && 
+      str.data[0] != '\r') {
+    buffer_insert_string(buffer, str);
+  }
+}
 
 // TODO: if we place the gap before or after visible buffer part,
 // we won't have to check where we are reaing token chars from

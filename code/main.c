@@ -26,15 +26,15 @@ os_entry_point() {
   QueryPerformanceFrequency(&performance_frequency_li);
   performance_frequency = performance_frequency_li.QuadPart;
   
-  // NOTE(lvl5): windows font stuff
-  //Font font = load_font(const_string("inconsolata.ttf"));
-  Font font = load_font(const_string("comic.ttf"), 
-                        const_string("Comic Sans MS"),
-                        30);
   GLuint shader = gl_create_shader_from_file(const_string("shader.glsl"));
   Renderer _renderer = {0};
   Renderer *renderer = &_renderer;
   
+  
+  
+  Font font = load_font(const_string("ubuntu_mono.ttf"), 
+                        const_string("Ubuntu Mono"),
+                        24);
   
   V2 window_size = os_get_window_size(window);
   init_renderer(renderer, shader, &font, window_size);
@@ -98,101 +98,73 @@ os_entry_point() {
           renderer->window_size = window_size;
         } break;
         
+        case os_Event_Type_BUTTON: {
+          os_Keycode keycode = event.button.keycode;
+          os_Button key = input.keys[keycode];
+          
+          if (input.ctrl) {
+            switch (keycode) {
+              case os_Keycode_SPACE: {
+                if (key.went_down) {
+                  buffer.mark = buffer.cursor;
+                }
+              } break;
+              
+              case 'C': {
+                if (key.pressed) {
+                  buffer_copy(&buffer);
+                }
+              } break;
+              case 'X': {
+                if (key.pressed) {
+                  buffer_cut(&buffer);
+                }
+              } break;
+              case 'V': {
+                if (key.pressed) {
+                  buffer_paste(&buffer);
+                }
+              } break;
+            }
+          } else {
+            switch (keycode) {
+              case os_Keycode_ARROW_RIGHT:
+              case os_Keycode_ARROW_LEFT:
+              case os_Keycode_ARROW_UP:
+              case os_Keycode_ARROW_DOWN: {
+                if (key.pressed) {
+                  move_cursor_direction(&font, &buffer, keycode);
+                }
+              } break;
+              
+              case os_Keycode_ENTER: {
+                if (key.pressed) buffer_newline(&buffer);
+              } break;
+              
+              case os_Keycode_BACKSPACE: {
+                if (key.pressed) buffer_remove_backward(&buffer, 1);
+              } break;
+              
+              case os_Keycode_DELETE: {
+                if (key.pressed) buffer_remove_forward(&buffer, 1);
+              } break;
+              
+              case os_Keycode_TAB: {
+                if (key.pressed) buffer_indent(&buffer);
+              } break;
+            }
+          }
+        } break;
+        
         default: {} break;
       }
     }
     
-    os_Keycode arrows_key_codes[] = {
-      os_Keycode_ARROW_RIGHT,
-      os_Keycode_ARROW_LEFT,
-      os_Keycode_ARROW_DOWN,
-      os_Keycode_ARROW_UP,
-    };
-    for (i32 i = 0; i < array_count(arrows_key_codes); i++) {
-      os_Keycode code = arrows_key_codes[i];
-      if (input.keys[code].pressed) {
-        move_cursor_direction(&font, &buffer, code);
-      }
-    }
     
-    
-    if (input.ctrl) {
-      if (input.keys[os_Keycode_SPACE].went_down) {
-        buffer.mark = buffer.cursor;
-      } else if (input.keys['C'].pressed) {
-        buffer_copy(&buffer);
-      } else if (input.keys['X'].pressed) {
-        buffer_cut(&buffer);
-      } else if (input.keys['V'].pressed) {
-        buffer_paste(&buffer);
-      }
-    } else {
+    if (!input.ctrl && !input.alt) {
       if (input.char_count > 0) {
         String str = make_string(input.chars, input.char_count);
-        
-        if (str.data[0] == '}') {
-          i32 start = seek_line_start(&buffer, buffer.cursor);
-          bool only_indent = true;
-          for (i32 i = start; i < buffer.cursor; i++) {
-            if (get_buffer_char(&buffer, i) != ' ') {
-              only_indent = false;
-              break;
-            }
-          }
-          if (only_indent && buffer.cursor >= 2) {
-            buffer_remove_backward(&buffer, 2);
-          }
-        }
-        if (str.data[0] != '\t' && 
-            str.data[0] != '\b' && 
-            str.data[0] != '\r') {
-          buffer_insert_string(&buffer, str);
-        }
-      }
-      
-      if (input.keys[os_Keycode_ENTER].pressed) {
-        i32 line_start = seek_line_start(&buffer, buffer.cursor);
-        String indent_str = { .count = 1 };
-        while (get_buffer_char(&buffer, 
-                               line_start + indent_str.count-1) == ' ') {
-          indent_str.count++;
-        }
-        
-        
-        i32 first_non_space_before = buffer.cursor;
-        while (get_buffer_char(&buffer, first_non_space_before) == ' ' ||
-               get_buffer_char(&buffer, first_non_space_before) == '\n') {
-          first_non_space_before--;
-        }
-        if (get_buffer_char(&buffer, first_non_space_before) == '{') {
-          indent_str.count += 2;
-        }
-        
-        indent_str.data = scratch_push_array(char, indent_str.count);
-        indent_str.data[0] = '\n';
-        for (i32 i = 1; i < (i32)indent_str.count; i++) {
-          indent_str.data[i] = ' ';
-        }
-        
-        buffer_insert_string(&buffer, indent_str);
-      }
-      if (input.keys[os_Keycode_BACKSPACE].pressed) {
-        if (buffer.cursor > 0) {
-          buffer_remove_backward(&buffer, 1);
-        }
-      } 
-      if (input.keys[os_Keycode_DELETE].pressed) {
-        if (buffer.cursor < buffer.count - 1) {
-          buffer_remove_forward(&buffer, 1);
-        }
-      }
-      if (input.keys[os_Keycode_TAB].pressed) {
-        String indent_str = make_string(scratch_push_array(char, 2), 2);
-        for (i32 i = 0; i < (i32)indent_str.count; i++) {
-          indent_str.data[i] = ' ';
-        }
-        
-        buffer_insert_string(&buffer, indent_str);
+        buffer_input_string(&buffer, str);
       }
     }
     
