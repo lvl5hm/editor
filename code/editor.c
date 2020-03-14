@@ -2,27 +2,6 @@
 #include "buffer.c"
 
 
-typedef struct {
-  gl_Funcs gl;
-  b32 (*pop_event)(os_Event*);
-  V2 (*get_window_size)();
-  void (*collect_messages)(os_Window, os_Input*);
-  String (*read_entire_file)(String);
-  Font (*load_font)(String, String, i32);
-} Os;
-
-typedef struct {
-  bool initialized;
-  bool reloaded;
-  
-  os_Window window;
-  
-  Renderer renderer;
-  bool running;
-  Text_Buffer buffer;
-  Font font;
-} Editor_Memory;
-
 Keybind *get_keybind(Settings *settings, os_Keycode keycode, 
                      bool shift, bool ctrl, bool alt) 
 {
@@ -41,12 +20,13 @@ Keybind *get_keybind(Settings *settings, os_Keycode keycode,
   return result;
 }
 
-void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
+extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   if (!memory->initialized) {
     memory->initialized = true;
     
+    global_context_info = os.context_info;
     
-    GLuint shader = gl_create_shader_from_file(os.read_entire_file, const_string("shader.glsl"));
+    GLuint shader = gl_create_shader_from_file(os.gl, os.read_entire_file, const_string("shader.glsl"));
     Renderer *renderer = &memory->renderer;
     
     
@@ -56,7 +36,7 @@ void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                                 24);
     
     V2 window_size = os.get_window_size(memory->window);
-    init_renderer(renderer, shader, &memory->font, window_size);
+    init_renderer(os.gl, renderer, shader, &memory->font, window_size);
     
     
     Text_Buffer *buffer = &memory->buffer;
@@ -84,11 +64,50 @@ void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     buffer_insert_string(buffer, str);
     set_cursor(buffer, 0);
+    
+    
+    
+#if 0  
+    Keybind keybinds[] = {
+      (Keybind){
+        .command = Command_COPY,
+        .keycode = 'C',
+        .ctrl = true,
+      },
+      (Keybind){
+        .command = Command_PASTE,
+        .keycode = 'V',
+        .ctrl = true,
+      },
+      (Keybind){
+        .command = Command_CUT,
+        .keycode = 'X',
+        .ctrl = true,
+      },
+      (Keybind){
+        .command = Command_MOVE_CURSOR_LEFT,
+        .keycode = os_Keycode_ARROW_LEFT,
+      },
+      (Keybind){
+        .command = Command_MOVE_CURSOR_RIGHT,
+        .keycode = os_Keycode_ARROW_RIGHT,
+      },
+      (Keybind){
+        .command = Command_MOVE_CURSOR_UP,
+        .keycode = os_Keycode_ARROW_UP,
+      },
+      (Keybind){
+        .command = Command_MOVE_CURSOR_DOWN,
+        .keycode = os_Keycode_ARROW_DOWN,
+      },
+    };
+#endif
   }
   
   Renderer *renderer = &memory->renderer;
   Text_Buffer *buffer = &memory->buffer;
   Font *font = renderer->state.font;
+  gl_Funcs gl = os.gl;
   
   scratch_reset();
   os.collect_messages(memory->window, input);
@@ -195,5 +214,5 @@ void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                       -renderer->window_size.y*0.5f);
   buffer_draw(renderer, buffer, rect2_min_size(bottom_left, 
                                                renderer->window_size));
-  renderer_output(renderer);
+  renderer_output(gl, renderer);
 }

@@ -1,52 +1,17 @@
-#include "editor.c"
+#include "common.h"
+
 #include <lvl5_files.h>
 #include <stdio.h>
 #include <lvl5_os.c>
 
-extern void editor_update(Os os, Editor_Memory *memory, os_Input *input);
+typedef void Editor_Update(Os os, Editor_Memory *memory, os_Input *input);
 
 
 
 os_entry_point() {
   context_init(megabytes(20));
-  os_Window window = os_create_window();
-  
-#if 0  
-  Keybind keybinds[] = {
-    (Keybind){
-      .command = Command_COPY,
-      .keycode = 'C',
-      .ctrl = true,
-    },
-    (Keybind){
-      .command = Command_PASTE,
-      .keycode = 'V',
-      .ctrl = true,
-    },
-    (Keybind){
-      .command = Command_CUT,
-      .keycode = 'X',
-      .ctrl = true,
-    },
-    (Keybind){
-      .command = Command_MOVE_CURSOR_LEFT,
-      .keycode = os_Keycode_ARROW_LEFT,
-    },
-    (Keybind){
-      .command = Command_MOVE_CURSOR_RIGHT,
-      .keycode = os_Keycode_ARROW_RIGHT,
-    },
-    (Keybind){
-      .command = Command_MOVE_CURSOR_UP,
-      .keycode = os_Keycode_ARROW_UP,
-    },
-    (Keybind){
-      .command = Command_MOVE_CURSOR_DOWN,
-      .keycode = os_Keycode_ARROW_DOWN,
-    },
-  };
-#endif
-  
+  gl_Funcs gl;
+  os_Window window = os_create_window(&gl);
   
   os_Input input = {0};
   
@@ -57,6 +22,7 @@ os_entry_point() {
     .collect_messages = os_collect_messages,
     .read_entire_file = os_read_entire_file,
     .load_font = os_load_font,
+    .context_info = global_context_info,
   };
   Editor_Memory memory = {
     .window = window,
@@ -64,8 +30,12 @@ os_entry_point() {
   };
   
   
+  os_Dll dll = os_load_dll("../build/editor.dll");
+  Editor_Update *editor_update = (Editor_Update *)os_load_function(dll, "editor_update");
+  
   while (memory.running) {
     begin_profiler_event("loop");
+    
     
     editor_update(os, &memory, &input);
     

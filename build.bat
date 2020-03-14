@@ -10,6 +10,12 @@ set compilerFlags=-DEDITOR_SLOW -Od -MTd -nologo -Oi -GR- -EHa- -WX -W4 -wd4101 
 set linkerFlags=-incremental:no -opt:ref OpenGL32.lib Winmm.lib user32.lib Gdi32.lib
 
 
+del editor*.pdb>NUL 2>NUL
+echo WAITING FOR PDB > lock.tmp
+
+cl %compilerFlags% /LD ..\code\editor.c /link %linkerFlags% /out:editor.dll /EXPORT:editor_update -PDB:editor_%random%.pdb
+
+del lock.tmp
 
 cl %compilerFlags% ..\code\main.c /link %linkerFlags%
 

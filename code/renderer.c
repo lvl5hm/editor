@@ -1,7 +1,7 @@
 #include "renderer.h"
 #include <lvl5_random.h>
 
-void init_renderer(Renderer *r, GLuint shader, Font *font, V2 window_size) {
+void init_renderer(gl_Funcs gl, Renderer *r, GLuint shader, Font *font, V2 window_size) {
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glEnable(GL_MULTISAMPLE);
@@ -144,7 +144,7 @@ void draw_rect(Renderer *r, Rect2 rect, V4 color) {
 }
 
 
-void renderer_output(Renderer *r) {
+void renderer_output(gl_Funcs gl, Renderer *r) {
   static Rand seq = {0};
   if (seq.seed[0] == 0) {
     seq = make_random_sequence(371284738);
