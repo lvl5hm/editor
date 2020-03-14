@@ -8,6 +8,25 @@ typedef void Editor_Update(Os os, Editor_Memory *memory, os_Input *input);
 
 
 
+u64 win32_get_last_write_time(String file_name) {
+  WIN32_FIND_DATAA find_data;
+  HANDLE file_handle = FindFirstFileA(
+    to_c_string(file_name),
+    &find_data);
+  u64 result = 0;
+  if (file_handle != INVALID_HANDLE_VALUE) {
+    FindClose(file_handle);
+    FILETIME write_time = find_data.ftLastWriteTime;
+    
+    result = write_time.dwHighDateTime;
+    result = result << 32;
+    result = result | write_time.dwLowDateTime;
+  }
+  return result;
+}
+
+
+
 os_entry_point() {
   context_init(megabytes(20));
   gl_Funcs gl;
@@ -30,10 +49,43 @@ os_entry_point() {
   };
   
   
-  os_Dll dll = os_load_dll("../build/editor.dll");
-  Editor_Update *editor_update = (Editor_Update *)os_load_function(dll, "editor_update");
+  u64 last_game_dll_write_time = 0;
+  os_Dll dll = 0;
+  Editor_Update *editor_update = 0;
   
   while (memory.running) {
+    String dll_path = const_string("../build/editor.dll");
+    
+    String lock_path = const_string("../build/lock.tmp");
+    WIN32_FILE_ATTRIBUTE_DATA ignored;
+    b32 lock_file_exists = 
+      GetFileAttributesExA(to_c_string(lock_path), GetFileExInfoStandard, &ignored);
+    
+    u64 current_write_time = win32_get_last_write_time(dll_path);
+    if (!lock_file_exists && 
+        current_write_time &&
+        last_game_dll_write_time != current_write_time) {
+      if (dll) {
+        os_free_dll(dll);
+      }
+      
+      String copy_dll_path = const_string("../build/editor_temp.dll");
+      
+      char *src = to_c_string(dll_path);
+      char *dst = to_c_string(copy_dll_path);
+      b32 copy_success = CopyFileA(src, dst, false);
+      assert(copy_success);
+      
+      dll = os_load_dll(dst);
+      editor_update = (Editor_Update *)os_load_function(dll, "editor_update");
+      
+      last_game_dll_write_time = current_write_time;
+      memory.reloaded = true;
+    } else {
+      memory.reloaded = false;
+    }
+    
+    
     begin_profiler_event("loop");
     
     

@@ -21,10 +21,12 @@ Keybind *get_keybind(Settings *settings, os_Keycode keycode,
 }
 
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
+  if(memory->reloaded) {
+    global_context_info = os.context_info;
+  }
+  
   if (!memory->initialized) {
     memory->initialized = true;
-    
-    global_context_info = os.context_info;
     
     GLuint shader = gl_create_shader_from_file(os.gl, os.read_entire_file, const_string("shader.glsl"));
     Renderer *renderer = &memory->renderer;
