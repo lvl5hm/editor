@@ -118,7 +118,7 @@ Font load_font(String file_name, String font_name_str, i32 font_size) {
     
     SetBkColor(device_context, RGB(0, 0, 0));
     
-    char first_codepoint = ' ';
+    char first_codepoint = 0;
     char last_codepoint = '~';
     
     i32 codepoint_count = last_codepoint - first_codepoint + 1;
@@ -156,24 +156,26 @@ Font load_font(String file_name, String font_name_str, i32 font_size) {
       i32 max_x = -10000;
       i32 max_y = -10000;
       
-      if (codepoint == ' ') {
-        min_x = 0;
-        min_y = 0;
-        max_x = 20;
-        max_y = 20;
-      } else {
-        u32 *pixel = font_buffer_pixels;
-        for (i32 y = 0; y < font_buffer_height; y++) {
-          for (i32 x = 0; x < font_buffer_width; x++) {
-            u32 color_ref = *(pixel++);
-            if (color_ref != 0) {
-              if (x < min_x) min_x = x;
-              if (x > max_x) max_x = x;
-              if (y < min_y) min_y = y;
-              if (y > max_y) max_y = y;
-            }
+      
+      u32 *pixel = font_buffer_pixels;
+      for (i32 y = 0; y < font_buffer_height; y++) {
+        for (i32 x = 0; x < font_buffer_width; x++) {
+          u32 color_ref = *(pixel++);
+          if (color_ref != 0) {
+            if (x < min_x) min_x = x;
+            if (x > max_x) max_x = x;
+            if (y < min_y) min_y = y;
+            if (y > max_y) max_y = y;
           }
         }
+      }
+      
+      if (min_x == 10000) {
+        min_x = 0;
+        min_y = 0;
+        max_x = 0;
+        max_y = 0;
+      } else {
         min_x--;
         min_y--;
         max_x++;

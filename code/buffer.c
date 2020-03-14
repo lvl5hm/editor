@@ -172,13 +172,25 @@ void buffer_remove_forward(Text_Buffer *b, i32 count) {
   buffer_changed(b);
 }
 
-b32 move_cursor_direction(Text_Buffer *b, os_Keycode direction) {
+f32 get_pixel_position_in_line(Font *font, Text_Buffer *b, i32 pos) {
+  i32 line_start = seek_line_start(b, pos);
+  f32 result = 0;
+  for (i32 i = line_start; i < pos; i++) {
+    result += font_get_advance(font, 
+                               get_buffer_char(b, i),
+                               get_buffer_char(b, i+1));
+  }
+  return result;
+}
+
+b32 move_cursor_direction(Font *font, Text_Buffer *b, os_Keycode direction) {
   b32 result = false;
   i32 cursor = b->cursor;
   switch (direction) {
     case os_Keycode_ARROW_RIGHT: {
       if (cursor < b->count-1) {
         cursor++;
+        b->preferred_col_pos = cursor;
         result = true;
       }
     } break;
@@ -186,33 +198,60 @@ b32 move_cursor_direction(Text_Buffer *b, os_Keycode direction) {
     case os_Keycode_ARROW_LEFT: {
       if (cursor > 0) {
         cursor--;
+        b->preferred_col_pos = cursor;
         result = true;
       }
     } break;
     
     case os_Keycode_ARROW_DOWN: {
       i32 line_start = seek_line_start(b, cursor);
-      i32 col = cursor - line_start;
-      i32 line_end = seek_line_end(b, cursor);
-      i32 want = line_end + 1 + col;
-      i32 max_possible = seek_line_end(b, line_end+1);
       
-      if (want > max_possible) {
-        want = max_possible;
+      f32 cur_pixel = get_screen_position_in_buffer(font, b, b->preferred_col_pos).x;
+      i32 line_end = seek_line_end(b, cursor);
+      
+      i32 want = line_end + 1;
+      f32 want_pixel = 0;
+      while (get_buffer_char(b, want) != '\n') {
+        i8 advance = font_get_advance(font, 
+                                      get_buffer_char(b, want), 
+                                      get_buffer_char(b, want+1));
+        if (want_pixel + advance > cur_pixel) {
+          if (cur_pixel - want_pixel < want_pixel + advance - cur_pixel) {
+            break;
+          } else {
+            want++;
+            break;
+          }
+        }
+        want_pixel += advance;
+        want++;
       }
+      
       cursor = want;
     } break;
     
     case os_Keycode_ARROW_UP: {
       i32 line_start = seek_line_start(b, cursor);
-      i32 col = cursor - line_start;
-      i32 prev_line_start = seek_line_start(b, line_start-1);
-      i32 want = prev_line_start + col;
       
-      i32 max_possible = max(line_start - 1, 0);
+      f32 cur_pixel = get_screen_position_in_buffer(font, b, b->preferred_col_pos).x;
+      i32 line_end = seek_line_end(b, cursor);
       
-      if (want > max_possible) {
-        want = max_possible;
+      i32 want = seek_line_start(b, line_start-1);
+      f32 want_pixel = 0;
+      while (want + 1 < line_start) {
+        i8 advance = font_get_advance(font, 
+                                      get_buffer_char(b, want), 
+                                      get_buffer_char(b, want+1));
+        if (want_pixel + advance > cur_pixel) {
+          if (cur_pixel - want_pixel < want_pixel + advance - cur_pixel) {
+            break;
+          } else {
+            want++;
+            break;
+          }
+        }
+        want_pixel += advance;
+        want++;
       }
       
       cursor = want;
@@ -308,16 +347,10 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
     V2 top_left = v2(rect.min.x, rect.max.y + buffer->scroll_y*line_spacing);
     
     
-    char cursor_char = get_buffer_char(buffer, buffer->cursor);
-    i8 cursor_width;
-    if (cursor_char >= font->first_codepoint && cursor_char < font->first_codepoint + font->codepoint_count) {
-      cursor_width = font_get_advance(font, cursor_char,
-                                      get_buffer_char(buffer, buffer->cursor+1));
-    } else {
-      cursor_width = font_get_advance(font, ' ', 0);
-    }
     
-    
+    i8 cursor_width = font_get_advance(font, 
+                                       get_buffer_char(buffer, buffer->cursor),
+                                       get_buffer_char(buffer, buffer->cursor+1));
     draw_rect(renderer, 
               rect2_min_size(v2_add(top_left, cursor_p), v2(cursor_width, line_spacing)), 
               v4(0, 1, 0, 1));

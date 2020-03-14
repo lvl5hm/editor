@@ -108,10 +108,9 @@ void render_rotate(Renderer *r, f32 angle) {
 f32 measure_string_width(Renderer *r, String s) {
   Font *font = r->state.font;
   f32 result = 0;
-  for (u32 char_index = 0; char_index < s.count-1; char_index++) {
+  for (u32 char_index = 0; char_index < s.count; char_index++) {
     result += font_get_advance(font, s.data[char_index], s.data[char_index+1]);
   }
-  result += font_get_advance(font, s.data[s.count-1], 0);
   
   return result;
 }

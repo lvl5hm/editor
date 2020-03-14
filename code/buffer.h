@@ -11,6 +11,9 @@ typedef struct {
   i32 capacity;
   
   i32 cursor;
+  
+  i32 preferred_col_pos;
+  
   i32 mark;
   
   f32 scroll_y;

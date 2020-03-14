@@ -28,9 +28,9 @@ os_entry_point() {
   
   // NOTE(lvl5): windows font stuff
   //Font font = load_font(const_string("inconsolata.ttf"));
-  Font font = load_font(const_string("roboto.ttf"), 
-                        const_string("Roboto"),
-                        24);
+  Font font = load_font(const_string("comic.ttf"), 
+                        const_string("Comic Sans MS"),
+                        30);
   GLuint shader = gl_create_shader_from_file(const_string("shader.glsl"));
   Renderer _renderer = {0};
   Renderer *renderer = &_renderer;
@@ -111,7 +111,7 @@ os_entry_point() {
     for (i32 i = 0; i < array_count(arrows_key_codes); i++) {
       os_Keycode code = arrows_key_codes[i];
       if (input.keys[code].pressed) {
-        move_cursor_direction(&buffer, code);
+        move_cursor_direction(&font, &buffer, code);
       }
     }
     
