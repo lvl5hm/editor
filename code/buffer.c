@@ -374,7 +374,7 @@ void buffer_input_string(Text_Buffer *buffer, String str) {
 
 #define PADDING 4
 
-void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
+void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect, Color_Theme theme) {
   begin_profiler_event("buffer_draw");
   
   Font *font = renderer->state.font;
@@ -384,6 +384,9 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
   V2 rect_size = rect2_get_size(rect);
   i32 first_visible_line = (i32)buffer->scroll_y;
   i32 height_lines = (i32)(rect_size.y / line_spacing);
+  
+  
+  draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Text_Color_Type_BACKGROUND]));
   
   
   {
@@ -459,40 +462,31 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect) {
         break;
       }
     } else {
-      u32 green = 0xFFA6E22E;
-      u32 orange = 0xFFFD911F;
-      u32 red = 0xFFF92672;
-      u32 cyan = 0xFF66D9EF;
-      u32 violet = 0xFFAE81FF;
-      u32 yellow = 0xFFE6DB74;
-      u32 white = 0xFFF8F8F2;
-      u32 grey = 0xFF88846F;
-      
-      u32 color = white;
+      u32 color = theme.colors[Text_Color_Type_DEFAULT];
       
       if (t->ast_kind == A_ARGUMENT) {
-        color = orange;
+        color = theme.colors[Text_Color_Type_ARG];
       } else if (t->ast_kind == A_FUNCTION) {
-        color = green;
+        color = theme.colors[Text_Color_Type_FUNCTION];
       } else if (t->ast_kind == A_TYPE) {
-        color = cyan;
+        color = theme.colors[Text_Color_Type_TYPE];
       }else if ((t->kind >= T_KEYWORD_FIRST && 
                  t->kind <= T_KEYWORD_LAST) ||
                 (t->kind >= T_OPERATOR_FIRST && 
                  t->kind <= T_OPERATOR_LAST)) 
       {
-        color = red;
+        color = theme.colors[Text_Color_Type_KEYWORD];
       } else if (t->ast_kind == A_MACRO || 
                  t->kind == T_INT || 
                  t->kind == T_FLOAT) 
       {
-        color = violet;
+        color = theme.colors[Text_Color_Type_NUMBER];
       } else if (t->kind == T_STRING ||
                  t->kind == T_CHAR ||
                  t->ast_kind == A_ENUM_MEMBER) {
-        color = yellow;
+        color = theme.colors[Text_Color_Type_STRING];
       } else if (t->kind == T_COMMENT) {
-        color = grey;
+        color = theme.colors[Text_Color_Type_COMMENT];
       }
       
       V4 color_float = color_u32_to_v4(color);

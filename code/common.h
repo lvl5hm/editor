@@ -1,4 +1,4 @@
-#ifndef COMMON_H
+#ifndef EDITOR_COMMON_H
 
 #include <lvl5_os.h>
 #include <lvl5_types.h>
@@ -19,15 +19,13 @@ typedef struct {
 typedef struct {
   bool initialized;
   bool reloaded;
-  
+  bool running;
   os_Window window;
   
-  Renderer renderer;
-  bool running;
-  Text_Buffer buffer;
-  Font font;
+  byte *data;
+  Mem_Size size;
 } Editor_Memory;
 
 
-#define COMMON_H
+#define EDITOR_COMMON_H
 #endif

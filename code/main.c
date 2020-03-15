@@ -3,6 +3,7 @@
 #include <lvl5_files.h>
 #include <stdio.h>
 #include <lvl5_os.c>
+#include <lvl5_arena.h>
 
 typedef void Editor_Update(Os os, Editor_Memory *memory, os_Input *input);
 
@@ -43,11 +44,17 @@ os_entry_point() {
     .load_font = os_load_font,
     .context_info = global_context_info,
   };
+  
+  Mem_Size memory_size = megabytes(20);
+  
   Editor_Memory memory = {
     .window = window,
     .running = true,
+    .data = alloc_array(byte, memory_size),
+    .size = memory_size,
   };
   
+  zero_memory_slow(memory.data, memory.size);
   
   u64 last_game_dll_write_time = 0;
   os_Dll dll = 0;
