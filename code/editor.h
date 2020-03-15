@@ -7,45 +7,49 @@ typedef enum {
   Command_COPY,
   Command_PASTE,
   Command_CUT,
-  Command_MOVE_CURSOR_LEFT = os_Keycode_ARROW_LEFT,
-  Command_MOVE_CURSOR_RIGHT = os_Keycode_ARROW_RIGHT,
-  Command_MOVE_CURSOR_UP = os_Keycode_ARROW_UP,
-  Command_MOVE_CURSOR_DOWN = os_Keycode_ARROW_DOWN,
+  Command_MOVE_CURSOR_LEFT,
+  Command_MOVE_CURSOR_RIGHT,
+  Command_MOVE_CURSOR_UP,
+  Command_MOVE_CURSOR_DOWN,
   Command_REMOVE_BACKWARD,
   Command_REMOVE_FORWARD,
   Command_NEWLINE,
   Command_TAB,
+  Command_OPEN_FILE,
+  Command_LISTER_MOVE_UP,
+  Command_LISTER_MOVE_DOWN,
+  Command_LISTER_SELECT,
 } Command;
 
 typedef enum {
-  Text_Color_Type_BACKGROUND,
-  Text_Color_Type_DEFAULT,
-  Text_Color_Type_COMMENT,
-  Text_Color_Type_TYPE,
-  Text_Color_Type_MACRO,
-  Text_Color_Type_FUNCTION,
-  Text_Color_Type_ARG,
-  Text_Color_Type_OPERATOR,
-  Text_Color_Type_KEYWORD,
-  Text_Color_Type_CURSOR,
-  Text_Color_Type_NUMBER,
-  Text_Color_Type_STRING,
+  Syntax_BACKGROUND,
+  Syntax_DEFAULT,
+  Syntax_COMMENT,
+  Syntax_TYPE,
+  Syntax_MACRO,
+  Syntax_FUNCTION,
+  Syntax_ARG,
+  Syntax_OPERATOR,
+  Syntax_KEYWORD,
+  Syntax_CURSOR,
+  Syntax_NUMBER,
+  Syntax_STRING,
   
-  Text_Color_Type_count,
-} Text_Color_Type;
+  Syntax_count,
+} Syntax;
 
 typedef struct {
   String name;
-  u32 colors[Text_Color_Type_count];
+  u32 colors[Syntax_count];
 } Color_Theme;
+
 
 
 typedef enum {
   View_Type_NONE,
   View_Type_BUFFER,
+  View_Type_FILE_DIALOG,
   View_Type_SETTINGS,
-  View_Type_OPEN_FILE,
-  View_Type_CREATE_FILE,
 } View_Type;
 
 
@@ -55,7 +59,7 @@ typedef struct {
   bool ctrl;
   bool alt;
   os_Keycode keycode;
-  View_Type type;
+  View_Type views;
   
   Command command;
 } Keybind;
@@ -66,16 +70,51 @@ typedef struct {
 } Settings;
 
 typedef struct {
+  String *items;
+  i32 index;
+} Lister;
+
+
+
+
+typedef struct {
+  i32 view_index;
+  Rect2 rect;
+} Panel;
+
+typedef struct {
+  int _;
+} File_Dialog;
+
+typedef struct {
+  int _;
+} Settings_Editor;
+
+typedef struct {
+  union {
+    Buffer buffer;
+    File_Dialog file_dialog;
+    Settings_Editor settings_editor;
+  };
+  View_Type type;
+} View;
+
+typedef struct {
+  Panel *panels;
+  i32 active_panel_index;
+  
+  View *views;
+  
   Settings settings;
-  Text_Buffer buffer;
-  View_Type view_type;
+  String current_dir;
+  Lister current_dir_files;
 } Editor;
 
 typedef struct {
   Renderer renderer;
   Font font;
   Editor editor;
-} Editor_State;
+} App_State;
 
 #define EDITOR_H
 #endif

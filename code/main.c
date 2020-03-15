@@ -9,27 +9,12 @@ typedef void Editor_Update(Os os, Editor_Memory *memory, os_Input *input);
 
 
 
-u64 win32_get_last_write_time(String file_name) {
-  WIN32_FIND_DATAA find_data;
-  HANDLE file_handle = FindFirstFileA(
-    to_c_string(file_name),
-    &find_data);
-  u64 result = 0;
-  if (file_handle != INVALID_HANDLE_VALUE) {
-    FindClose(file_handle);
-    FILETIME write_time = find_data.ftLastWriteTime;
-    
-    result = write_time.dwHighDateTime;
-    result = result << 32;
-    result = result | write_time.dwLowDateTime;
-  }
-  return result;
-}
-
-
-
 os_entry_point() {
   context_init(megabytes(20));
+  profiler_event_capacity = 1000000;
+  profiler_events = alloc_array(Profiler_Event, profiler_event_capacity);
+  
+  
   gl_Funcs gl;
   os_Window window = os_create_window(&gl);
   
@@ -42,7 +27,16 @@ os_entry_point() {
     .collect_messages = os_collect_messages,
     .read_entire_file = os_read_entire_file,
     .load_font = os_load_font,
+    .open_file = os_open_file,
+    .get_file_names = os_get_file_names,
+    .close_file = os_close_file,
+    .read_file = os_read_file,
+    .get_file_size = os_get_file_size,
+    
     .context_info = global_context_info,
+    .profiler_event_capacity = profiler_event_capacity,
+    .profiler_events = profiler_events,
+    .profiler_event_count = profiler_event_count,
   };
   
   Mem_Size memory_size = megabytes(20);
@@ -61,14 +55,11 @@ os_entry_point() {
   Editor_Update *editor_update = 0;
   
   while (memory.running) {
-    String dll_path = const_string("../build/editor.dll");
-    
     String lock_path = const_string("../build/lock.tmp");
-    WIN32_FILE_ATTRIBUTE_DATA ignored;
-    b32 lock_file_exists = 
-      GetFileAttributesExA(to_c_string(lock_path), GetFileExInfoStandard, &ignored);
+    String dll_path = const_string("../build/editor.dll");
+    bool lock_file_exists = os_get_file_info(lock_path).exists;
+    u64 current_write_time = os_get_file_info(dll_path).write_time;
     
-    u64 current_write_time = win32_get_last_write_time(dll_path);
     if (!lock_file_exists && 
         current_write_time &&
         last_game_dll_write_time != current_write_time) {
@@ -78,13 +69,12 @@ os_entry_point() {
       
       String copy_dll_path = const_string("../build/editor_temp.dll");
       
-      char *src = to_c_string(dll_path);
-      char *dst = to_c_string(copy_dll_path);
-      b32 copy_success = CopyFileA(src, dst, false);
+      bool copy_success = os_copy_file(copy_dll_path, dll_path);
       assert(copy_success);
       
-      dll = os_load_dll(dst);
-      editor_update = (Editor_Update *)os_load_function(dll, "editor_update");
+      dll = os_load_dll(copy_dll_path);
+      editor_update = (Editor_Update *)
+        os_load_function(dll, const_string("editor_update"));
       
       last_game_dll_write_time = current_write_time;
       memory.reloaded = true;

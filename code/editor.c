@@ -2,16 +2,21 @@
 #include "buffer.c"
 
 
-Keybind *get_keybind(Settings *settings, os_Keycode keycode, 
+Keybind *get_keybind(Editor *editor, os_Keycode keycode, 
                      bool shift, bool ctrl, bool alt) 
 {
+  Settings *settings = &editor->settings;
+  Panel *panel = editor->panels + editor->active_panel_index;
+  View *view = editor->views + panel->view_index;
+  
   Keybind *result = null;
   for (u32 i = 0; i < sb_count(settings->keybinds); i++) {
     Keybind *k = settings->keybinds + i;
     if (k->keycode == keycode &&
         k->shift == shift && 
         k->ctrl == ctrl && 
-        k->alt == alt)
+        k->alt == alt &&
+        (k->views & view->type))
     {
       result = k;
       break;
@@ -20,9 +25,26 @@ Keybind *get_keybind(Settings *settings, os_Keycode keycode,
   return result;
 }
 
-void execute_command(Editor *editor, Renderer *renderer, Command command) {
-  Text_Buffer *buffer = &editor->buffer;
+void execute_command(Os os, Editor *editor, Renderer *renderer, Command command) {
   Font *font = renderer->state.font;
+  
+  Panel *panel = editor->panels + editor->active_panel_index;
+  View *view = editor->views + panel->view_index;
+  
+  Buffer *buffer = null;
+  File_Dialog *file_dialog = null;
+  Settings_Editor *settings_editor = null;
+  switch (view->type) {
+    case View_Type_BUFFER: {
+      buffer = &view->buffer;
+    } break;
+    case View_Type_FILE_DIALOG: {
+      file_dialog = &view->file_dialog;
+    } break;
+    case View_Type_SETTINGS: {
+      settings_editor = &view->settings_editor;
+    } break;
+  }
   
   switch (command) {
     case Command_COPY: {
@@ -42,6 +64,19 @@ void execute_command(Editor *editor, Renderer *renderer, Command command) {
       move_cursor_direction(font, buffer, command);
     } break;
     
+    case Command_LISTER_MOVE_DOWN:
+    case Command_LISTER_MOVE_UP: {
+      Lister *lister = &editor->current_dir_files;
+      
+      i32 add = 0;
+      if (command == Command_LISTER_MOVE_DOWN) {
+        add = 1;
+      } else if (command == Command_LISTER_MOVE_UP) {
+        add = -1;
+      }
+      lister->index = (lister->index + add) % sb_count(lister->items);
+    } break;
+    
     case Command_REMOVE_BACKWARD: {
       buffer_remove_backward(buffer, 1);
     } break;
@@ -54,14 +89,24 @@ void execute_command(Editor *editor, Renderer *renderer, Command command) {
     case Command_TAB: {
       buffer_indent(buffer);
     } break;
+    case Command_OPEN_FILE: {
+      panel->view_index = 0; // 0 is always file dialog for now
+      View *view = editor->views + panel->view_index;
+      
+      Lister *lister = &editor->current_dir_files;
+      lister->items = os.get_file_names(const_string("src"));
+    } break;
   }
 }
 
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
-  Editor_State *state = (Editor_State *)memory->data;
+  App_State *state = (App_State *)memory->data;
   
   if(memory->reloaded) {
     global_context_info = os.context_info;
+    profiler_events = os.profiler_events;
+    profiler_event_capacity = os.profiler_event_capacity;
+    profiler_event_count = os.profiler_event_count;
   }
   
   if (!memory->initialized) {
@@ -72,7 +117,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     
-    state->font = os.load_font(const_string("ubuntu_mono.ttf"), 
+    state->font = os.load_font(const_string("fonts/ubuntu_mono.ttf"), 
                                const_string("Ubuntu Mono"),
                                24);
     
@@ -80,108 +125,163 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     init_renderer(os.gl, renderer, shader, &state->font, window_size);
     
     
-    Text_Buffer *buffer = &state->editor.buffer;
-    buffer->data = alloc_array(char, 128);
-    buffer->capacity = 128;
-    buffer->count = 0;
-    buffer->cursor = 0;
+    Editor *editor = &state->editor;
     
-    String str;
-    // TODO: all files should end with \0
     {
-      FILE *file;
-      errno_t err = fopen_s(&file, "test.c", "rb");
-      fseek(file, 0, SEEK_END);
-      i32 file_size = ftell(file);
-      fseek(file, 0, SEEK_SET);
+      Buffer buffer = {0};
+      buffer.data = alloc_array(char, 128);
+      buffer.capacity = 128;
+      buffer.count = 0;
+      buffer.cursor = 0;
       
-      char *file_memory = alloc_array(char, file_size+1);
-      size_t read = fread(file_memory, 1, file_size, file);
-      assert(read == file_size);
-      fclose(file);
-      str = make_string(file_memory, file_size+1);
-      str.data[file_size] = 0;
+      String *files_in_folder = os.get_file_names(const_string("src"));
+      
+      String str;
+      {
+        os_File file = os.open_file(const_string("src/test.c"));
+        u64 file_size = os.get_file_size(file);
+        char *file_memory = alloc_array(char, file_size + 1);
+        os.read_file(file, file_memory, 0, file_size);
+        os.close_file(file);
+        
+        str = make_string(file_memory, file_size + 1);
+        str.data[file_size] = 0; // TODO: all files should end with \0
+      }
+      
+      buffer_insert_string(&buffer, str);
+      set_cursor(&buffer, 0);
+      
+      
+      editor->views = sb_new(View, 16);
+      sb_push(editor->views, ((View){
+                              .type = View_Type_BUFFER,
+                              .buffer = buffer,
+                              }));
+      
+      
+      editor->panels = sb_new(Panel, 16);
+      
+      V2 ws = renderer->window_size;
+      V2 bottom_left = v2(-0.5f, -0.5f);
+      V2 panel_size = v2(0.5f, 1.0f);
+      sb_push(editor->panels, ((Panel){
+                               .view_index = 0,
+                               .rect = rect2_min_size(bottom_left, 
+                                                      panel_size),
+                               }));
+      sb_push(editor->panels, ((Panel){
+                               .view_index = 0,
+                               .rect = rect2_min_size(v2(0, -0.5f), 
+                                                      panel_size),
+                               }));
     }
     
-    buffer_insert_string(buffer, str);
-    set_cursor(buffer, 0);
     
     
     
-    Editor *editor = &state->editor;
+    
     editor->settings.keybinds = sb_new(Keybind, 32);
     Keybind *keybinds = editor->settings.keybinds;
     
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_COPY,
                        .keycode = 'C',
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_PASTE,
                        .keycode = 'V',
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_CUT,
                        .keycode = 'X',
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_LEFT,
                        .keycode = os_Keycode_ARROW_LEFT,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_RIGHT,
                        .keycode = os_Keycode_ARROW_RIGHT,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_UP,
                        .keycode = os_Keycode_ARROW_UP,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_DOWN,
                        .keycode = os_Keycode_ARROW_DOWN,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_REMOVE_BACKWARD,
                        .keycode = os_Keycode_BACKSPACE,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_REMOVE_FORWARD,
                        .keycode = os_Keycode_DELETE,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_NEWLINE,
                        .keycode = os_Keycode_ENTER,
                        }));
     sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
                        .command = Command_TAB,
                        .keycode = os_Keycode_TAB,
                        }));
-    
+    sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER 
+                       | View_Type_FILE_DIALOG,
+                       .command = Command_OPEN_FILE,
+                       .keycode = 'O',
+                       .ctrl = true,
+                       }));
+    sb_push(keybinds, ((Keybind){
+                       .views = View_Type_FILE_DIALOG,
+                       .command = Command_LISTER_MOVE_UP,
+                       .keycode = os_Keycode_ARROW_UP,
+                       }));
+    sb_push(keybinds, ((Keybind){
+                       .views = View_Type_FILE_DIALOG,
+                       .command = Command_LISTER_MOVE_DOWN,
+                       .keycode = os_Keycode_ARROW_DOWN,
+                       }));
     
     Color_Theme monokai = (Color_Theme){
       .name = const_string("Monokai"),
     };
-    monokai.colors[Text_Color_Type_BACKGROUND] = 0xFF272822;
-    monokai.colors[Text_Color_Type_DEFAULT] = 0xFFF8F8F2;
-    monokai.colors[Text_Color_Type_COMMENT] = 0xFF88846F;
-    monokai.colors[Text_Color_Type_TYPE] = 0xFF66D9EF;
-    monokai.colors[Text_Color_Type_MACRO] = 0xFFAE81FF;
-    monokai.colors[Text_Color_Type_FUNCTION] = 0xFFA6E22E;
-    monokai.colors[Text_Color_Type_ARG] = 0xFFFD911F;
-    monokai.colors[Text_Color_Type_OPERATOR] = 0xFFF92672;
-    monokai.colors[Text_Color_Type_KEYWORD] = 0xFFF92672;
-    monokai.colors[Text_Color_Type_CURSOR] = 0xFF00FF00;
-    monokai.colors[Text_Color_Type_NUMBER] = monokai.colors[Text_Color_Type_MACRO];
-    monokai.colors[Text_Color_Type_STRING] = 0xFFE6DB74;
+    monokai.colors[Syntax_BACKGROUND] = 0xFF272822;
+    monokai.colors[Syntax_DEFAULT] = 0xFFF8F8F2;
+    monokai.colors[Syntax_COMMENT] = 0xFF88846F;
+    monokai.colors[Syntax_TYPE] = 0xFF66D9EF;
+    monokai.colors[Syntax_MACRO] = 0xFFAE81FF;
+    monokai.colors[Syntax_FUNCTION] = 0xFFA6E22E;
+    monokai.colors[Syntax_ARG] = 0xFFFD911F;
+    monokai.colors[Syntax_OPERATOR] = 0xFFF92672;
+    monokai.colors[Syntax_KEYWORD] = monokai.colors[Syntax_OPERATOR];
+    monokai.colors[Syntax_CURSOR] = 0xFF00FF00;
+    monokai.colors[Syntax_NUMBER] = monokai.colors[Syntax_MACRO];
+    monokai.colors[Syntax_STRING] = 0xFFE6DB74;
     editor->settings.theme = monokai;
+    
+    
+    glEnable(GL_SCISSOR_TEST);
   }
   Editor *editor = &state->editor;
   Renderer *renderer = &state->renderer;
   Font *font = renderer->state.font;
-  Text_Buffer *buffer = &editor->buffer;
   gl_Funcs gl = os.gl;
   
   scratch_reset();
@@ -207,10 +307,10 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         os_Button key = input->keys[keycode];
         
         if (key.pressed) {
-          Keybind *bind = get_keybind(&editor->settings, keycode, 
+          Keybind *bind = get_keybind(editor, keycode, 
                                       input->shift, input->ctrl, input->alt);
           if (bind) {
-            execute_command(editor, renderer, bind->command);
+            execute_command(os, editor, renderer, bind->command);
           }
         }
       } break;
@@ -220,24 +320,70 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   }
   
   
-  if (!input->ctrl && !input->alt) {
-    if (input->char_count > 0) {
-      String str = make_string(input->chars, input->char_count);
-      buffer_input_string(buffer, str);
-    }
-  }
   
   end_profiler_event("input");
   
-  renderer->state.matrix = m4_identity();
-  sb_count(renderer->items) = 0;
+  gl.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  gl.Clear(GL_COLOR_BUFFER_BIT);
   
-  render_scale(renderer, v3(2/renderer->window_size.x,
-                            2/renderer->window_size.y, 1));
+  renderer_reset(renderer);
   
   V2 bottom_left = v2(-renderer->window_size.x*0.5f,
                       -renderer->window_size.y*0.5f);
-  buffer_draw(renderer, buffer, rect2_min_size(bottom_left, 
-                                               renderer->window_size), editor->settings.theme);
+  V2 top_left = v2_add(bottom_left, v2(0, renderer->window_size.y));
+  
+  Color_Theme theme = editor->settings.theme;
+  
+  {
+    Panel *active_panel = editor->panels + editor->active_panel_index;
+    View *active_view = editor->views + active_panel->view_index;
+    if (active_view->type == View_Type_BUFFER) {
+      if (!input->ctrl && !input->alt) {
+        if (input->char_count > 0) {
+          String str = make_string(input->chars, input->char_count);
+          buffer_input_string(&active_view->buffer, str);
+        }
+      }
+    }
+  }
+  
+  for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
+    Panel *panel = editor->panels + panel_index;
+    View *view = editor->views + panel->view_index;
+    
+    switch (view->type) {
+      case View_Type_FILE_DIALOG: {
+        Lister *lister = &editor->current_dir_files;
+        u32 file_count = sb_count(lister->items);
+        
+        V2 pos = top_left;
+        for (u32 i = 0; i < file_count; i++) {
+          String file_name = lister->items[i];
+          
+          bool selected = (i32)i == lister->index;
+          
+          u32 color = theme.colors[Syntax_DEFAULT];
+          if (selected) {
+            color = theme.colors[Syntax_FUNCTION];
+          }
+          
+          draw_string(renderer, file_name, pos, color_u32_to_v4(color));
+          pos.y -= font->line_spacing;
+        }
+      } break;
+      
+      case View_Type_BUFFER: {
+        Buffer *buffer = &view->buffer;
+        
+        V2 ws = renderer->window_size;
+        Rect2 rect = rect2_min_max(v2_hadamard(panel->rect.min, ws),
+                                   v2_hadamard(panel->rect.max, ws));
+        renderer_reset(renderer);
+        buffer_draw(renderer, buffer, rect, editor->settings.theme);
+        renderer_output(gl, renderer);
+      } break;
+    }
+  }
+  
   renderer_output(gl, renderer);
 }

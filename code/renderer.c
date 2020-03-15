@@ -40,8 +40,6 @@ void init_renderer(gl_Funcs gl, Renderer *r, GLuint shader, Font *font, V2 windo
   gl.GenVertexArrays(1, &vao);
   gl.BindVertexArray(vao);
   
-  gl.UseProgram(shader);
-  
   gl.BindBuffer(GL_ARRAY_BUFFER, quad_vbo);
   gl.EnableVertexAttribArray(0);
   gl.VertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void *)0);
@@ -89,6 +87,7 @@ void init_renderer(gl_Funcs gl, Renderer *r, GLuint shader, Font *font, V2 windo
   r->window_size = window_size;
   r->vertex_vbo = vertex_vbo;
   r->items = sb_new(Render_Item, 1024);
+  r->shader = shader;
 }
 
 
@@ -117,7 +116,7 @@ f32 measure_string_width(Renderer *r, String s) {
 
 
 // strings drawn with this MUST have an extra char of padding AFTER count
-void draw_string(Renderer *r, String s, V2 p, V4 color, bool scared) {
+void draw_string(Renderer *r, String s, V2 p, V4 color) {
   V3 pos = v2_to_v3(p, 0);
   render_translate(r, pos);
   
@@ -127,7 +126,6 @@ void draw_string(Renderer *r, String s, V2 p, V4 color, bool scared) {
   };
   item.state.color = color;
   item.string.string = s;
-  item.string.scared = scared;
   sb_push(r->items, item);
   
   render_translate(r, v3_negate(pos));
@@ -175,10 +173,6 @@ void renderer_output(gl_Funcs gl, Renderer *r) {
           u16 width = (u16)(rect.max.x - rect.min.x);
           u16 height = (u16)(rect.max.y - rect.min.y);
           
-          if (item->string.scared) {
-            origin.x += random_range(&seq, -2, 2);
-            origin.y += random_range(&seq, -2, 2);
-          }
           
           M4 m = matrix;
           m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
@@ -211,9 +205,13 @@ void renderer_output(gl_Funcs gl, Renderer *r) {
         V2 size = rect2_get_size(rect);
         
         M4 m = item->state.matrix;
-        m = m4_scale(m, v3(size.x, size.y, 1));
-        m = m4_translate(m, v3(rect.min.x*m.e00/size.x, 
-                               rect.min.y*m.e11/size.y, 0));
+        
+        m = m4_mul_m4(m, m4_translated(v3(rect.min.x,
+                                          rect.min.y, 
+                                          0)));
+        m = m4_mul_m4(m, m4_scaled(v3(size.x, size.y, 1)));
+        
+        
         
         Rect2i sprite_rect = r->state.font->atlas.rects[r->state.font->atlas.count-1];
         
@@ -230,6 +228,10 @@ void renderer_output(gl_Funcs gl, Renderer *r) {
     }
   }
   
+  gl.UseProgram(r->shader);
+  
+  
+  //gl_set_uniform_m4(gl, r->shader, "u_projection", &u_projection, 1);
   
   gl.BindBuffer(GL_ARRAY_BUFFER, r->vertex_vbo);
   gl.BufferData(GL_ARRAY_BUFFER, sizeof(Quad_Instance)*sb_count(instances), instances, GL_DYNAMIC_DRAW);
@@ -237,4 +239,14 @@ void renderer_output(gl_Funcs gl, Renderer *r) {
   gl.DrawArraysInstanced(GL_TRIANGLES, 0, 6, sb_count(instances));
   
   pop_context();
+}
+
+
+void renderer_reset(Renderer *renderer) {
+  V2 ws = renderer->window_size;
+  renderer->state.matrix = m4_transpose(m4_orthographic(-ws.x*0.5f, ws.x*0.5f, 
+                                                        -ws.y*0.5f, ws.y*0.5f,
+                                                        -1, 1));
+  sb_count(renderer->items) = 0;
+  
 }

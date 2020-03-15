@@ -215,7 +215,7 @@ typedef struct {
 typedef struct {
   i32 i;
   Token *tokens;
-  Text_Buffer *buffer;
+  Buffer *buffer;
   Symbol *symbols;
 } Parser;
 

@@ -12,8 +12,16 @@ typedef struct {
   void (*collect_messages)(os_Window, os_Input*);
   String (*read_entire_file)(String);
   Font (*load_font)(String, String, i32);
+  os_File (*open_file)(String);
+  String *(*get_file_names)(String);
+  void (*close_file)(os_File);
+  void (*read_file)(os_File, void*, u64, u64);
+  u64 (*get_file_size)(os_File);
   
   Global_Context_Info *context_info;
+  Profiler_Event *profiler_events;
+  i32 profiler_event_capacity;
+  i32 profiler_event_count;
 } Os;
 
 typedef struct {

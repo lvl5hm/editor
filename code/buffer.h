@@ -24,11 +24,11 @@ typedef struct {
   Token *tokens;
   
   bool context_menu;
-} Text_Buffer;
+} Buffer;
 
 
-String buffer_part_to_string(Text_Buffer *, i32, i32);
-char get_buffer_char(Text_Buffer *, i32);
+String buffer_part_to_string(Buffer *, i32, i32);
+char get_buffer_char(Buffer *, i32);
 
 
 
@@ -46,12 +46,13 @@ typedef struct {
   Profiler_Event_Type type;
 } Profiler_Event;
 
-Profiler_Event profiler_events[10000000];
+Profiler_Event *profiler_events = null;
+i32 profiler_event_capacity = 0;
 i32 profiler_event_count = 0;
 
 
 void add_profiler_event(char *name, Profiler_Event_Type type) {
-  if (profiler_event_count < array_count(profiler_events)) {
+  if (profiler_event_count < profiler_event_capacity) {
     Profiler_Event *event = profiler_events + profiler_event_count++;
     event->stamp = __rdtsc();
     event->name = name;

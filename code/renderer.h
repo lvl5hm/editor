@@ -29,7 +29,6 @@ typedef struct {
   union {
     struct {
       String string;
-      bool scared;
     } string;
     struct {
       Rect2 rect;
@@ -48,6 +47,7 @@ typedef struct {
   GLuint vertex_vbo;
   
   Render_Item *items;
+  GLuint shader;
 } Renderer;
 
 

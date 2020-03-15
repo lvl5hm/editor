@@ -9,6 +9,7 @@ layout(location = 6) in vec4 color;
 out vec2 tex_coord;
 out vec4 fr_color;
 
+
 void main() {
   mat4x4 u_model = transpose(model);
   gl_Position = u_model*vec4(position, 0.0f, 1.0f);

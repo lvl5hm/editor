@@ -4,19 +4,19 @@
 #include "font.c"
 #include "renderer.c"
 
-inline i32 get_gap_count(Text_Buffer *b) {
+inline i32 get_gap_count(Buffer *b) {
   i32 result = b->capacity - b->count;
   return result;
 }
 
-inline i32 get_gap_start(Text_Buffer *b) {
+inline i32 get_gap_start(Buffer *b) {
   i32 gap_count = get_gap_count(b);
   i32 result = b->cursor;
   assert(result <= b->capacity - gap_count);
   return result;
 }
 
-inline i32 get_buffer_pos(Text_Buffer *b, i32 pos) {
+inline i32 get_buffer_pos(Buffer *b, i32 pos) {
   i32 gap_start = get_gap_start(b);
   i32 gap_count = get_gap_count(b);
   
@@ -25,12 +25,12 @@ inline i32 get_buffer_pos(Text_Buffer *b, i32 pos) {
   return result;
 }
 
-char get_buffer_char(Text_Buffer *b, i32 pos) {
+char get_buffer_char(Buffer *b, i32 pos) {
   char result = b->data[get_buffer_pos(b, pos)];
   return result;
 }
 
-V2 get_buffer_xy(Text_Buffer *b, i32 pos) {
+V2 get_buffer_xy(Buffer *b, i32 pos) {
   V2 result = v2_zero();
   
   for (i32 char_index = 0; char_index < pos; char_index++) {
@@ -46,7 +46,7 @@ V2 get_buffer_xy(Text_Buffer *b, i32 pos) {
   return result;
 }
 
-V2 get_screen_position_in_buffer(Font *font, Text_Buffer *b, i32 pos) {
+V2 get_screen_position_in_buffer(Font *font, Buffer *b, i32 pos) {
   V2 result = v2(0, -(f32)font->line_spacing);
   
   for (i32 char_index = 0; char_index < pos; char_index++) {
@@ -63,7 +63,7 @@ V2 get_screen_position_in_buffer(Font *font, Text_Buffer *b, i32 pos) {
   return result;
 }
 
-i32 seek_line_start(Text_Buffer *b, i32 start) {
+i32 seek_line_start(Buffer *b, i32 start) {
   i32 result = max(start, 0);
   while (result > 0 && get_buffer_char(b, result-1) != '\n') {
     result--;
@@ -71,7 +71,7 @@ i32 seek_line_start(Text_Buffer *b, i32 start) {
   return result;
 }
 
-i32 seek_line_end(Text_Buffer *b, i32 start) {
+i32 seek_line_end(Buffer *b, i32 start) {
   i32 result = min(start, b->count - 1);
   while (result < (i32)b->count-1 && get_buffer_char(b, result) != '\n') {
     result++;
@@ -79,7 +79,7 @@ i32 seek_line_end(Text_Buffer *b, i32 start) {
   return result;
 }
 
-void set_cursor(Text_Buffer *b, i32 pos) {
+void set_cursor(Buffer *b, i32 pos) {
   assert(pos >= 0 && pos < b->count);
   i32 old_gap_start = get_gap_start(b);
   b->cursor = pos;
@@ -106,14 +106,14 @@ void set_cursor(Text_Buffer *b, i32 pos) {
   }
 }
 
-void buffer_changed(Text_Buffer *b) {
+void buffer_changed(Buffer *b) {
   if (b->tokens) {
     sb_free(b->tokens);
   }
   b->tokens = buffer_parse(b);
 }
 
-void buffer_insert_string(Text_Buffer *b, String str) {
+void buffer_insert_string(Buffer *b, String str) {
   if (b->count + (i32)str.count > b->capacity) {
     char *old_data = b->data;
     i32 old_gap_start = get_gap_start(b);
@@ -151,7 +151,7 @@ void buffer_insert_string(Text_Buffer *b, String str) {
   buffer_changed(b);
 }
 
-void buffer_remove_backward(Text_Buffer *b, i32 count) {
+void buffer_remove_backward(Buffer *b, i32 count) {
   assert(b->cursor - count >= 0);
   
   if (b->mark >= b->cursor) {
@@ -163,7 +163,7 @@ void buffer_remove_backward(Text_Buffer *b, i32 count) {
   buffer_changed(b);
 }
 
-void buffer_remove_forward(Text_Buffer *b, i32 count) {
+void buffer_remove_forward(Buffer *b, i32 count) {
   assert(b->cursor < b->count - 1);
   
   if (b->mark > b->cursor) {
@@ -174,22 +174,22 @@ void buffer_remove_forward(Text_Buffer *b, i32 count) {
   buffer_changed(b);
 }
 
-f32 get_pixel_position_in_line(Font *font, Text_Buffer *b, i32 pos) {
+f32 get_pixel_position_in_line(Font *font, Buffer *b, i32 pos) {
   i32 line_start = seek_line_start(b, pos);
   f32 result = 0;
   for (i32 i = line_start; i < pos; i++) {
     result += font_get_advance(font, 
                                get_buffer_char(b, i),
-                               get_buffer_char(b, i+1));
+                               get_buffer_char(b, i + 1));
   }
   return result;
 }
 
-b32 move_cursor_direction(Font *font, Text_Buffer *b, os_Keycode direction) {
+b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
   b32 result = false;
   i32 cursor = b->cursor;
   switch (direction) {
-    case os_Keycode_ARROW_RIGHT: {
+    case Command_MOVE_CURSOR_RIGHT: {
       if (cursor < b->count-1) {
         cursor++;
         b->preferred_col_pos = cursor;
@@ -197,7 +197,7 @@ b32 move_cursor_direction(Font *font, Text_Buffer *b, os_Keycode direction) {
       }
     } break;
     
-    case os_Keycode_ARROW_LEFT: {
+    case Command_MOVE_CURSOR_LEFT: {
       if (cursor > 0) {
         cursor--;
         b->preferred_col_pos = cursor;
@@ -205,7 +205,7 @@ b32 move_cursor_direction(Font *font, Text_Buffer *b, os_Keycode direction) {
       }
     } break;
     
-    case os_Keycode_ARROW_DOWN: {
+    case Command_MOVE_CURSOR_DOWN: {
       i32 line_start = seek_line_start(b, cursor);
       
       f32 cur_pixel = get_screen_position_in_buffer(font, b, b->preferred_col_pos).x;
@@ -232,7 +232,7 @@ b32 move_cursor_direction(Font *font, Text_Buffer *b, os_Keycode direction) {
       cursor = want;
     } break;
     
-    case os_Keycode_ARROW_UP: {
+    case Command_MOVE_CURSOR_UP: {
       i32 line_start = seek_line_start(b, cursor);
       
       f32 cur_pixel = get_screen_position_in_buffer(font, b, b->preferred_col_pos).x;
@@ -266,7 +266,7 @@ b32 move_cursor_direction(Font *font, Text_Buffer *b, os_Keycode direction) {
   return result;
 }
 
-String buffer_part_to_string(Text_Buffer *buffer, i32 start, i32 end) {
+String buffer_part_to_string(Buffer *buffer, i32 start, i32 end) {
   begin_profiler_event("buffer_part_to_string");
   String str = {0};
   str.count = end - start;
@@ -279,12 +279,12 @@ String buffer_part_to_string(Text_Buffer *buffer, i32 start, i32 end) {
   return str;
 }
 
-String text_buffer_to_string(Text_Buffer *buffer) {
+String text_buffer_to_string(Buffer *buffer) {
   String result = buffer_part_to_string(buffer, 0, buffer->count);
   return result;
 }
 
-void buffer_copy(Text_Buffer *buffer) {
+void buffer_copy(Buffer *buffer) {
   i32 start = min(buffer->cursor, buffer->mark);
   i32 end = max(buffer->cursor, buffer->mark);
   buffer->exchange_count = end - start;
@@ -294,12 +294,12 @@ void buffer_copy(Text_Buffer *buffer) {
   }
 }
 
-void buffer_paste(Text_Buffer *buffer) {
+void buffer_paste(Buffer *buffer) {
   String str = make_string(buffer->exchange, buffer->exchange_count);
   buffer_insert_string(buffer, str);
 }
 
-void buffer_cut(Text_Buffer *buffer) {
+void buffer_cut(Buffer *buffer) {
   buffer_copy(buffer);
   i32 count = buffer->cursor - buffer->mark;
   if (buffer->cursor < buffer->mark) {
@@ -312,7 +312,7 @@ void buffer_cut(Text_Buffer *buffer) {
 }
 
 
-void buffer_newline(Text_Buffer *buffer) {
+void buffer_newline(Buffer *buffer) {
   i32 line_start = seek_line_start(buffer, buffer->cursor);
   String indent_str = { .count = 1 };
   while (get_buffer_char(buffer, 
@@ -339,7 +339,7 @@ void buffer_newline(Text_Buffer *buffer) {
   buffer_insert_string(buffer, indent_str);
 }
 
-void buffer_indent(Text_Buffer *buffer) {
+void buffer_indent(Buffer *buffer) {
   String indent_str = make_string(scratch_push_array(char, 2), 2);
   for (i32 i = 0; i < (i32)indent_str.count; i++) {
     indent_str.data[i] = ' ';
@@ -348,7 +348,7 @@ void buffer_indent(Text_Buffer *buffer) {
   buffer_insert_string(buffer, indent_str);
 }
 
-void buffer_input_string(Text_Buffer *buffer, String str) {
+void buffer_input_string(Buffer *buffer, String str) {
   if (str.data[0] == '}') {
     i32 start = seek_line_start(buffer, buffer->cursor);
     bool only_indent = true;
@@ -374,19 +374,28 @@ void buffer_input_string(Text_Buffer *buffer, String str) {
 
 #define PADDING 4
 
-void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect, Color_Theme theme) {
+void buffer_draw(Renderer *renderer, Buffer *buffer, Rect2 rect, Color_Theme theme) {
   begin_profiler_event("buffer_draw");
+  
   
   Font *font = renderer->state.font;
   i8 line_spacing = font->line_spacing;
   
   
   V2 rect_size = rect2_get_size(rect);
+  
+  {
+    V2 ws = renderer->window_size;
+    V2i min = v2i((i32)(rect.min.x + ws.x*0.5f), (i32)(rect.min.y + ws.y*0.5f));
+    V2i size = v2_to_v2i(rect_size);
+    glScissor(min.x, min.y, size.x, size.y);
+  }
+  draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Syntax_BACKGROUND]));
+  
   i32 first_visible_line = (i32)buffer->scroll_y;
   i32 height_lines = (i32)(rect_size.y / line_spacing);
   
   
-  draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Text_Color_Type_BACKGROUND]));
   
   
   {
@@ -462,31 +471,31 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect, Color_Them
         break;
       }
     } else {
-      u32 color = theme.colors[Text_Color_Type_DEFAULT];
+      u32 color = theme.colors[Syntax_DEFAULT];
       
       if (t->ast_kind == A_ARGUMENT) {
-        color = theme.colors[Text_Color_Type_ARG];
+        color = theme.colors[Syntax_ARG];
       } else if (t->ast_kind == A_FUNCTION) {
-        color = theme.colors[Text_Color_Type_FUNCTION];
+        color = theme.colors[Syntax_FUNCTION];
       } else if (t->ast_kind == A_TYPE) {
-        color = theme.colors[Text_Color_Type_TYPE];
+        color = theme.colors[Syntax_TYPE];
       }else if ((t->kind >= T_KEYWORD_FIRST && 
                  t->kind <= T_KEYWORD_LAST) ||
                 (t->kind >= T_OPERATOR_FIRST && 
                  t->kind <= T_OPERATOR_LAST)) 
       {
-        color = theme.colors[Text_Color_Type_KEYWORD];
+        color = theme.colors[Syntax_KEYWORD];
       } else if (t->ast_kind == A_MACRO || 
                  t->kind == T_INT || 
                  t->kind == T_FLOAT) 
       {
-        color = theme.colors[Text_Color_Type_NUMBER];
+        color = theme.colors[Syntax_NUMBER];
       } else if (t->kind == T_STRING ||
                  t->kind == T_CHAR ||
                  t->ast_kind == A_ENUM_MEMBER) {
-        color = theme.colors[Text_Color_Type_STRING];
+        color = theme.colors[Syntax_STRING];
       } else if (t->kind == T_COMMENT) {
-        color = theme.colors[Text_Color_Type_COMMENT];
+        color = theme.colors[Syntax_COMMENT];
       }
       
       V4 color_float = color_u32_to_v4(color);
@@ -496,7 +505,7 @@ void buffer_draw(Renderer *renderer, Text_Buffer *buffer, Rect2 rect, Color_Them
       String token_string = buffer_part_to_string(buffer, 
                                                   t->start, 
                                                   t->start + t->count);
-      draw_string(renderer, token_string, offset, color_float, false);
+      draw_string(renderer, token_string, offset, color_float);
       offset.x += measure_string_width(renderer, token_string);
     }
   }

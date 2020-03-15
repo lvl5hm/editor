@@ -3,7 +3,7 @@
 
 
 // token strings always include one additional char for kerning
-String token_to_string(Text_Buffer *b, Token *t) {
+String token_to_string(Buffer *b, Token *t) {
   String result = buffer_part_to_string(b, t->start, t->start + t->count + 1);
   result.count--;
   return result;
@@ -42,7 +42,7 @@ b32 is_whitespace(char c) {
 }
 
 
-Token *buffer_tokenize(Text_Buffer *b) {
+Token *buffer_tokenize(Buffer *b) {
   begin_profiler_event("tokenize");
   
   Token *tokens = sb_new(Token, 1024);
@@ -717,7 +717,7 @@ void parse_program(Parser *p) {
   end_profiler_event("parse");
 }
 
-Token *buffer_parse(Text_Buffer *b) {
+Token *buffer_parse(Buffer *b) {
   Parser parser = {
     .i = 0,
     .tokens = buffer_tokenize(b),
