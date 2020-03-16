@@ -5,6 +5,7 @@
 typedef enum {
   Command_NONE,
   Command_COPY,
+  Command_SET_MARK,
   Command_PASTE,
   Command_CUT,
   Command_MOVE_CURSOR_LEFT,

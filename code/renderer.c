@@ -85,11 +85,23 @@ void init_renderer(gl_Funcs gl, Renderer *r, GLuint shader, Font *font, V2 windo
   r->state.matrix = m4_identity();
   r->state.font = font;
   r->window_size = window_size;
-  r->vertex_vbo = vertex_vbo;
   r->items = sb_new(Render_Item, 1024);
+  
+  r->vertex_vbo = vertex_vbo;
   r->shader = shader;
 }
 
+void renderer_begin_render(Renderer *r, Rect2 rect) {
+  V2 ws = r->window_size;
+  r->state.matrix = m4_transpose(m4_orthographic(-ws.x*0.5f, ws.x*0.5f, 
+                                                 -ws.y*0.5f, ws.y*0.5f,
+                                                 -1, 1));
+  sb_count(r->items) = 0;
+  
+  V2i min = v2i((i32)(rect.min.x + ws.x*0.5f), (i32)(rect.min.y + ws.y*0.5f));
+  V2i size = v2_to_v2i(rect2_get_size(rect));
+  glScissor(min.x, min.y, size.x, size.y);
+}
 
 void render_scale(Renderer *r, V3 scale) {
   r->state.matrix = m4_mul_m4(r->state.matrix, m4_scaled(scale));
@@ -141,8 +153,18 @@ void draw_rect(Renderer *r, Rect2 rect, V4 color) {
   sb_push(r->items, item);
 }
 
+void draw_rect_outline(Renderer *r, Rect2 rect, f32 thick, V4 color) {
+  V2 size = rect2_get_size(rect);
+  
+  draw_rect(r, rect2_min_size(rect.min, v2(size.x, thick)), color);
+  draw_rect(r, rect2_min_size(rect.min, v2(thick, size.y)), color);
+  draw_rect(r, rect2_min_size(v2(rect.min.x, rect.max.y-thick), 
+                              v2(size.x, thick)), color);
+  draw_rect(r, rect2_min_size(v2(rect.max.x-thick, rect.min.y),
+                              v2(thick, size.y)), color);
+}
 
-void renderer_output(gl_Funcs gl, Renderer *r) {
+void renderer_end_render(gl_Funcs gl, Renderer *r) {
   static Rand seq = {0};
   if (seq.seed[0] == 0) {
     seq = make_random_sequence(371284738);
@@ -239,14 +261,4 @@ void renderer_output(gl_Funcs gl, Renderer *r) {
   gl.DrawArraysInstanced(GL_TRIANGLES, 0, 6, sb_count(instances));
   
   pop_context();
-}
-
-
-void renderer_reset(Renderer *renderer) {
-  V2 ws = renderer->window_size;
-  renderer->state.matrix = m4_transpose(m4_orthographic(-ws.x*0.5f, ws.x*0.5f, 
-                                                        -ws.y*0.5f, ws.y*0.5f,
-                                                        -1, 1));
-  sb_count(renderer->items) = 0;
-  
 }

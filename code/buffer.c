@@ -377,26 +377,20 @@ void buffer_input_string(Buffer *buffer, String str) {
 void buffer_draw(Renderer *renderer, Buffer *buffer, Rect2 rect, Color_Theme theme) {
   begin_profiler_event("buffer_draw");
   
-  
   Font *font = renderer->state.font;
   i8 line_spacing = font->line_spacing;
   
+  f32 header_height = (f32)line_spacing*1.5f;
   
+  // skip the header
+  rect.max.y -= header_height;
   V2 rect_size = rect2_get_size(rect);
   
-  {
-    V2 ws = renderer->window_size;
-    V2i min = v2i((i32)(rect.min.x + ws.x*0.5f), (i32)(rect.min.y + ws.y*0.5f));
-    V2i size = v2_to_v2i(rect_size);
-    glScissor(min.x, min.y, size.x, size.y);
-  }
+  
   draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Syntax_BACKGROUND]));
   
   i32 first_visible_line = (i32)buffer->scroll_y;
   i32 height_lines = (i32)(rect_size.y / line_spacing);
-  
-  
-  
   
   {
     // draw cursor and marker
@@ -508,6 +502,17 @@ void buffer_draw(Renderer *renderer, Buffer *buffer, Rect2 rect, Color_Theme the
       draw_string(renderer, token_string, offset, color_float);
       offset.x += measure_string_width(renderer, token_string);
     }
+  }
+  
+  {
+    rect.max.y += header_height;
+    // draw header
+    V2 header_p = v2(rect.min.x, rect.max.y - header_height);
+    draw_rect(renderer, rect2_min_max(header_p,
+                                      rect.max), color_u32_to_v4(theme.colors[Syntax_COMMENT]));
+    
+    V2 title_p = v2(rect.min.x, rect.max.y - line_spacing*0.3f);
+    draw_string(renderer, buffer->file_name, title_p, v4(0, 0, 0, 1));
   }
   
   end_profiler_event("render");

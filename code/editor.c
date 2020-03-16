@@ -47,6 +47,9 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
   }
   
   switch (command) {
+    case Command_SET_MARK: {
+      buffer->mark = buffer->cursor;
+    } break;
     case Command_COPY: {
       buffer_copy(buffer);
     } break;
@@ -128,17 +131,20 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     Editor *editor = &state->editor;
     
     {
-      Buffer buffer = {0};
-      buffer.data = alloc_array(char, 128);
-      buffer.capacity = 128;
-      buffer.count = 0;
-      buffer.cursor = 0;
-      
-      String *files_in_folder = os.get_file_names(const_string("src"));
-      
-      String str;
+      editor->views = sb_new(View, 16);
       {
-        os_File file = os.open_file(const_string("src/test.c"));
+        Buffer buffer = {0};
+        buffer.data = alloc_array(char, 128);
+        buffer.capacity = 128;
+        buffer.count = 0;
+        buffer.cursor = 0;
+        buffer.file_name = const_string("src/test.c");
+        
+        String *files_in_folder = os.get_file_names(const_string("src"));
+        
+        
+        String str;
+        os_File file = os.open_file(buffer.file_name);
         u64 file_size = os.get_file_size(file);
         char *file_memory = alloc_array(char, file_size + 1);
         os.read_file(file, file_memory, 0, file_size);
@@ -146,17 +152,50 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         
         str = make_string(file_memory, file_size + 1);
         str.data[file_size] = 0; // TODO: all files should end with \0
+        buffer_insert_string(&buffer, str);
+        set_cursor(&buffer, 0);
+        
+        
+        
+        
+        
+        sb_push(editor->views, ((View){
+                                .type = View_Type_BUFFER,
+                                .buffer = buffer,
+                                }));
       }
       
-      buffer_insert_string(&buffer, str);
-      set_cursor(&buffer, 0);
-      
-      
-      editor->views = sb_new(View, 16);
-      sb_push(editor->views, ((View){
-                              .type = View_Type_BUFFER,
-                              .buffer = buffer,
-                              }));
+      {
+        Buffer buffer = {0};
+        buffer.data = alloc_array(char, 128);
+        buffer.capacity = 128;
+        buffer.count = 0;
+        buffer.cursor = 0;
+        buffer.file_name = const_string("src/foo.c");
+        
+        String *files_in_folder = os.get_file_names(const_string("src"));
+        
+        
+        String str;
+        os_File file = os.open_file(buffer.file_name);
+        u64 file_size = os.get_file_size(file);
+        char *file_memory = alloc_array(char, file_size + 1);
+        os.read_file(file, file_memory, 0, file_size);
+        os.close_file(file);
+        
+        str = make_string(file_memory, file_size + 1);
+        str.data[file_size] = 0; // TODO: all files should end with \0
+        buffer_insert_string(&buffer, str);
+        set_cursor(&buffer, 0);
+        
+        
+        
+        
+        sb_push(editor->views, ((View){
+                                .type = View_Type_BUFFER,
+                                .buffer = buffer,
+                                }));
+      }
       
       
       editor->panels = sb_new(Panel, 16);
@@ -170,7 +209,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                                                       panel_size),
                                }));
       sb_push(editor->panels, ((Panel){
-                               .view_index = 0,
+                               .view_index = 1,
                                .rect = rect2_min_size(v2(0, -0.5f), 
                                                       panel_size),
                                }));
@@ -178,11 +217,17 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     
-    
+    editor->active_panel_index = 1;
     
     editor->settings.keybinds = sb_new(Keybind, 32);
     Keybind *keybinds = editor->settings.keybinds;
     
+    sb_push(keybinds, ((Keybind){
+                       .views = View_Type_BUFFER,
+                       .command = Command_SET_MARK,
+                       .keycode = os_Keycode_SPACE,
+                       .ctrl = true,
+                       }));
     sb_push(keybinds, ((Keybind){
                        .views = View_Type_BUFFER,
                        .command = Command_COPY,
@@ -326,8 +371,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   gl.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   gl.Clear(GL_COLOR_BUFFER_BIT);
   
-  renderer_reset(renderer);
-  
   V2 bottom_left = v2(-renderer->window_size.x*0.5f,
                       -renderer->window_size.y*0.5f);
   V2 top_left = v2_add(bottom_left, v2(0, renderer->window_size.y));
@@ -350,6 +393,16 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
     Panel *panel = editor->panels + panel_index;
     View *view = editor->views + panel->view_index;
+    
+    V2 ws = renderer->window_size;
+    Rect2 border_rect = rect2_min_max(v2_hadamard(panel->rect.min, ws),
+                                      v2_hadamard(panel->rect.max, ws));
+    renderer_begin_render(renderer, border_rect);
+    
+    f32 border_thickness = 4;
+    
+    Rect2 rect = rect2_min_max(v2(border_rect.min.x+4, border_rect.min.y+4),
+                               v2(border_rect.max.x+4, border_rect.max.y+4));
     
     switch (view->type) {
       case View_Type_FILE_DIALOG: {
@@ -374,16 +427,13 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       
       case View_Type_BUFFER: {
         Buffer *buffer = &view->buffer;
-        
-        V2 ws = renderer->window_size;
-        Rect2 rect = rect2_min_max(v2_hadamard(panel->rect.min, ws),
-                                   v2_hadamard(panel->rect.max, ws));
-        renderer_reset(renderer);
         buffer_draw(renderer, buffer, rect, editor->settings.theme);
-        renderer_output(gl, renderer);
       } break;
     }
+    
+    draw_rect_outline(renderer, border_rect, border_thickness, 
+                      color_u32_to_v4(editor->settings.theme.colors[Syntax_DEFAULT]));
+    
+    renderer_end_render(gl, renderer);
   }
-  
-  renderer_output(gl, renderer);
 }

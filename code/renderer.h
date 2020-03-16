@@ -44,9 +44,10 @@ typedef struct {
 typedef struct {
   Renderer_State state;
   V2 window_size;
-  GLuint vertex_vbo;
   
   Render_Item *items;
+  
+  GLuint vertex_vbo;
   GLuint shader;
 } Renderer;
 

@@ -8,6 +8,8 @@
 typedef struct Token Token;
 
 typedef struct {
+  String file_name;
+  
   char *data;
   i32 count;
   i32 capacity;
