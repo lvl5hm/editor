@@ -368,21 +368,26 @@ i32 skip_whitespace_forward(Parser *p, i32 offset) {
 }
 
 Token *peek_token(Parser *p, i32 offset) {
-  assert(p->i + offset < (i32)sb_count(p->tokens));
-  
-  i32 index = p->i;
-  while (offset < 0) {
-    index--;
-    index = skip_whitespace_backward(p, index);
-    offset++;
+  Token *result = null;
+  if (p->i + offset >= (i32)sb_count(p->tokens)) {
+    result = alloc_struct(Token);
+    Token zero_token = {0};
+    *result = zero_token;
+  } else {
+    i32 index = p->i;
+    while (offset < 0) {
+      index--;
+      index = skip_whitespace_backward(p, index);
+      offset++;
+    }
+    while (offset > 0) {
+      index++;
+      index = skip_whitespace_forward(p, index);
+      offset--;
+    }
+    result = p->tokens + index;
   }
-  while (offset > 0) {
-    index++;
-    index = skip_whitespace_forward(p, index);
-    offset--;
-  }
   
-  Token *result = p->tokens + index;
   return result;
 }
 

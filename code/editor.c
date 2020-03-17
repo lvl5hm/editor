@@ -108,20 +108,14 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       String file_name = lister->items[lister->index];
       String path = concat(const_string("src/"), file_name);
       
-      Buffer buffer = {0};
-      buffer.data = alloc_array(char, 128);
-      buffer.capacity = 128;
-      buffer.file_name = file_name;
-      
-      String str;
       os_File file = os.open_file(path);
       u64 file_size = os.get_file_size(file);
-      char *file_memory = alloc_array(char, file_size + 1);
+      char *file_memory = alloc_array(char, file_size);
       os.read_file(file, file_memory, 0, file_size);
       os.close_file(file);
       
-      str = make_string(file_memory, file_size + 1);
-      str.data[file_size] = 0;
+      String str = make_string(file_memory, file_size + 1);
+      Buffer buffer = make_empty_buffer();
       buffer_insert_string(&buffer, str);
       set_cursor(&buffer, 0);
       
@@ -166,15 +160,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       editor->views = sb_new(View, 16);
       editor->panels = sb_new(Panel, 16);
       
-      Buffer scratch_buffer = {0};
-      scratch_buffer.data = alloc_array(char, 128);
-      scratch_buffer.capacity = 128;
-      scratch_buffer.file_name = const_string("scratch");
-      
-      String fuck = const_string("Poo Poo Piker\0");
-      buffer_insert_string(&scratch_buffer, fuck);
-      set_cursor(&scratch_buffer, 0);
-      
       
       sb_push(editor->views, ((View){
                               .type = View_Type_FILE_DIALOG,
@@ -182,7 +167,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       
       sb_push(editor->views, ((View){
                               .type = View_Type_BUFFER,
-                              .buffer = scratch_buffer,
+                              .buffer = make_empty_buffer(),
                               }));
       
       
@@ -431,3 +416,4 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     renderer_end_render(gl, renderer);
   }
 }
+

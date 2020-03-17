@@ -113,12 +113,19 @@ void buffer_changed(Buffer *b) {
   b->tokens = buffer_parse(b);
 }
 
+
+#define BUFFER_INCREMENT_SIZE 1024
+
 void buffer_insert_string(Buffer *b, String str) {
   if (b->count + (i32)str.count > b->capacity) {
     char *old_data = b->data;
     i32 old_gap_start = get_gap_start(b);
     i32 old_gap_count = get_gap_count(b);
     
+    i32 required_count = b->count + (i32)str.count;
+    if (b->count + (i32)str.count > b->capacity) {
+      b->capacity = ceil_f32_i32((f32)required_count / (f32)BUFFER_INCREMENT_SIZE)*BUFFER_INCREMENT_SIZE;
+    }
     while (b->count + (i32)str.count > b->capacity) {
       b->capacity = b->capacity*2;
     }
@@ -149,6 +156,17 @@ void buffer_insert_string(Buffer *b, String str) {
   b->count += (i32)str.count;
   
   buffer_changed(b);
+}
+
+
+Buffer make_empty_buffer() {
+  Buffer b = {0};
+  b.capacity = BUFFER_INCREMENT_SIZE;
+  b.data = alloc_array(char, b.capacity);
+  b.file_name = const_string("scratch");
+  buffer_insert_string(&b, const_string("\0"));
+  set_cursor(&b, 0);
+  return b;
 }
 
 void buffer_remove_backward(Buffer *b, i32 count) {
@@ -211,7 +229,7 @@ b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
       f32 cur_pixel = get_screen_position_in_buffer(font, b, b->preferred_col_pos).x;
       i32 line_end = seek_line_end(b, cursor);
       
-      i32 want = line_end + 1;
+      i32 want = min(line_end + 1, b->count - 1);
       f32 want_pixel = 0;
       while (get_buffer_char(b, want) != '\n') {
         i8 advance = font_get_advance(font, 
