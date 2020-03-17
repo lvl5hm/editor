@@ -16,7 +16,7 @@ typedef enum {
   Command_REMOVE_FORWARD,
   Command_NEWLINE,
   Command_TAB,
-  Command_OPEN_FILE,
+  Command_OPEN_FILE_DIALOG,
   Command_LISTER_MOVE_UP,
   Command_LISTER_MOVE_DOWN,
   Command_LISTER_SELECT,
@@ -82,6 +82,13 @@ typedef struct {
   i32 view_index;
   Rect2 rect;
 } Panel;
+
+
+typedef enum {
+  File_Dialog_Type_NONE,
+  File_Dialog_Type_OPEN,
+  File_Dialog_Type_NEW,
+} File_Dialog_Type;
 
 typedef struct {
   int _;

@@ -92,12 +92,44 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
     case Command_TAB: {
       buffer_indent(buffer);
     } break;
-    case Command_OPEN_FILE: {
+    case Command_OPEN_FILE_DIALOG: {
       panel->view_index = 0; // 0 is always file dialog for now
       View *view = editor->views + panel->view_index;
       
       Lister *lister = &editor->current_dir_files;
       lister->items = os.get_file_names(const_string("src"));
+    } break;
+    
+    case Command_LISTER_SELECT: {
+      // TODO(lvl5): handle file already open
+      // TODO(lvl5): handle creating new file
+      
+      Lister *lister = &editor->current_dir_files;
+      String file_name = lister->items[lister->index];
+      String path = concat(const_string("src/"), file_name);
+      
+      Buffer buffer = {0};
+      buffer.data = alloc_array(char, 128);
+      buffer.capacity = 128;
+      buffer.file_name = file_name;
+      
+      String str;
+      os_File file = os.open_file(path);
+      u64 file_size = os.get_file_size(file);
+      char *file_memory = alloc_array(char, file_size + 1);
+      os.read_file(file, file_memory, 0, file_size);
+      os.close_file(file);
+      
+      str = make_string(file_memory, file_size + 1);
+      str.data[file_size] = 0;
+      buffer_insert_string(&buffer, str);
+      set_cursor(&buffer, 0);
+      
+      panel->view_index = sb_count(editor->views);
+      sb_push(editor->views, ((View){
+                              .type = View_Type_BUFFER,
+                              .buffer = buffer,
+                              }));
     } break;
   }
 }
@@ -132,92 +164,49 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     {
       editor->views = sb_new(View, 16);
-      {
-        Buffer buffer = {0};
-        buffer.data = alloc_array(char, 128);
-        buffer.capacity = 128;
-        buffer.count = 0;
-        buffer.cursor = 0;
-        buffer.file_name = const_string("src/test.c");
-        
-        String *files_in_folder = os.get_file_names(const_string("src"));
-        
-        
-        String str;
-        os_File file = os.open_file(buffer.file_name);
-        u64 file_size = os.get_file_size(file);
-        char *file_memory = alloc_array(char, file_size + 1);
-        os.read_file(file, file_memory, 0, file_size);
-        os.close_file(file);
-        
-        str = make_string(file_memory, file_size + 1);
-        str.data[file_size] = 0; // TODO: all files should end with \0
-        buffer_insert_string(&buffer, str);
-        set_cursor(&buffer, 0);
-        
-        
-        
-        
-        
-        sb_push(editor->views, ((View){
-                                .type = View_Type_BUFFER,
-                                .buffer = buffer,
-                                }));
-      }
-      
-      {
-        Buffer buffer = {0};
-        buffer.data = alloc_array(char, 128);
-        buffer.capacity = 128;
-        buffer.count = 0;
-        buffer.cursor = 0;
-        buffer.file_name = const_string("src/foo.c");
-        
-        String *files_in_folder = os.get_file_names(const_string("src"));
-        
-        
-        String str;
-        os_File file = os.open_file(buffer.file_name);
-        u64 file_size = os.get_file_size(file);
-        char *file_memory = alloc_array(char, file_size + 1);
-        os.read_file(file, file_memory, 0, file_size);
-        os.close_file(file);
-        
-        str = make_string(file_memory, file_size + 1);
-        str.data[file_size] = 0; // TODO: all files should end with \0
-        buffer_insert_string(&buffer, str);
-        set_cursor(&buffer, 0);
-        
-        
-        
-        
-        sb_push(editor->views, ((View){
-                                .type = View_Type_BUFFER,
-                                .buffer = buffer,
-                                }));
-      }
-      
-      
       editor->panels = sb_new(Panel, 16);
+      
+      Buffer scratch_buffer = {0};
+      scratch_buffer.data = alloc_array(char, 128);
+      scratch_buffer.capacity = 128;
+      scratch_buffer.file_name = const_string("scratch");
+      
+      String fuck = const_string("Poo Poo Piker\0");
+      buffer_insert_string(&scratch_buffer, fuck);
+      set_cursor(&scratch_buffer, 0);
+      
+      
+      sb_push(editor->views, ((View){
+                              .type = View_Type_FILE_DIALOG,
+                              }));
+      
+      sb_push(editor->views, ((View){
+                              .type = View_Type_BUFFER,
+                              .buffer = scratch_buffer,
+                              }));
+      
+      
       
       V2 ws = renderer->window_size;
       V2 bottom_left = v2(-0.5f, -0.5f);
       V2 panel_size = v2(0.5f, 1.0f);
       sb_push(editor->panels, ((Panel){
-                               .view_index = 0,
+                               .view_index = 1,
                                .rect = rect2_min_size(bottom_left, 
                                                       panel_size),
                                }));
+#if 0
       sb_push(editor->panels, ((Panel){
-                               .view_index = 1,
+                               .view_index = 0,
                                .rect = rect2_min_size(v2(0, -0.5f), 
                                                       panel_size),
                                }));
+#endif
     }
     
     
     
-    editor->active_panel_index = 1;
+    editor->active_panel_index = 0;
     
     editor->settings.keybinds = sb_new(Keybind, 32);
     Keybind *keybinds = editor->settings.keybinds;
@@ -289,7 +278,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     sb_push(keybinds, ((Keybind){
                        .views = View_Type_BUFFER 
                        | View_Type_FILE_DIALOG,
-                       .command = Command_OPEN_FILE,
+                       .command = Command_OPEN_FILE_DIALOG,
                        .keycode = 'O',
                        .ctrl = true,
                        }));
@@ -302,6 +291,11 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                        .views = View_Type_FILE_DIALOG,
                        .command = Command_LISTER_MOVE_DOWN,
                        .keycode = os_Keycode_ARROW_DOWN,
+                       }));
+    sb_push(keybinds, ((Keybind){
+                       .views = View_Type_FILE_DIALOG,
+                       .command = Command_LISTER_SELECT,
+                       .keycode = os_Keycode_ENTER,
                        }));
     
     Color_Theme monokai = (Color_Theme){
