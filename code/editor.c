@@ -7,7 +7,6 @@ Keybind *get_keybind(Editor *editor, os_Keycode keycode,
 {
   Settings *settings = &editor->settings;
   Panel *panel = editor->panels + editor->active_panel_index;
-  View *view = editor->views + panel->view_index;
   
   Keybind *result = null;
   for (u32 i = 0; i < sb_count(settings->keybinds); i++) {
@@ -16,7 +15,7 @@ Keybind *get_keybind(Editor *editor, os_Keycode keycode,
         k->shift == shift && 
         k->ctrl == ctrl && 
         k->alt == alt &&
-        (k->views & view->type))
+        (k->views & panel->type))
     {
       result = k;
       break;
@@ -29,20 +28,13 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
   Font *font = renderer->state.font;
   
   Panel *panel = editor->panels + editor->active_panel_index;
-  View *view = editor->views + panel->view_index;
-  
+  Buffer_View *buffer_view = null;
   Buffer *buffer = null;
-  File_Dialog *file_dialog = null;
-  Settings_Editor *settings_editor = null;
-  switch (view->type) {
-    case View_Type_BUFFER: {
-      buffer = &view->buffer;
-    } break;
-    case View_Type_FILE_DIALOG: {
-      file_dialog = &view->file_dialog;
-    } break;
-    case View_Type_SETTINGS: {
-      settings_editor = &view->settings_editor;
+  
+  switch (panel->type) {
+    case Panel_Type_BUFFER: {
+      buffer_view = &panel->buffer_view;
+      buffer = buffer_view->buffer;
     } break;
   }
   
@@ -93,8 +85,7 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       buffer_indent(buffer);
     } break;
     case Command_OPEN_FILE_DIALOG: {
-      panel->view_index = 0; // 0 is always file dialog for now
-      View *view = editor->views + panel->view_index;
+      panel->type = Panel_Type_FILE_DIALOG_OPEN;
       
       Lister *lister = &editor->current_dir_files;
       lister->items = os.get_file_names(const_string("src"));
@@ -118,18 +109,23 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       Buffer buffer = make_empty_buffer();
       buffer_insert_string(&buffer, str);
       set_cursor(&buffer, 0);
+      sb_push(editor->buffers, buffer);
+      Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
       
-      panel->view_index = sb_count(editor->views);
-      sb_push(editor->views, ((View){
-                              .type = View_Type_BUFFER,
-                              .buffer = buffer,
-                              }));
+      panel->type = Panel_Type_BUFFER;
+      panel->buffer_view = (Buffer_View){
+        .buffer = inserted,
+      };
     } break;
   }
 }
 
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   App_State *state = (App_State *)memory->data;
+  
+  
+  profiler_event_count = 0;
+  begin_profiler_event("loop");
   
   if(memory->reloaded) {
     global_context_info = os.context_info;
@@ -157,36 +153,37 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     Editor *editor = &state->editor;
     
     {
-      editor->views = sb_new(View, 16);
+      editor->buffers = sb_new(Buffer, 16);
       editor->panels = sb_new(Panel, 16);
       
-      
-      sb_push(editor->views, ((View){
-                              .type = View_Type_FILE_DIALOG,
-                              }));
-      
-      sb_push(editor->views, ((View){
-                              .type = View_Type_BUFFER,
-                              .buffer = make_empty_buffer(),
-                              }));
-      
+      sb_push(editor->buffers, make_empty_buffer());
+      Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
       
       
       V2 ws = renderer->window_size;
       V2 bottom_left = v2(-0.5f, -0.5f);
       V2 panel_size = v2(0.5f, 1.0f);
-      sb_push(editor->panels, ((Panel){
-                               .view_index = 1,
-                               .rect = rect2_min_size(bottom_left, 
-                                                      panel_size),
-                               }));
-#if 0
-      sb_push(editor->panels, ((Panel){
-                               .view_index = 0,
-                               .rect = rect2_min_size(v2(0, -0.5f), 
-                                                      panel_size),
-                               }));
-#endif
+      
+      {
+        Panel panel = (Panel){
+          .buffer_view = (Buffer_View){
+            .buffer = buffer,
+          },
+          .type = Panel_Type_BUFFER,
+          .rect = rect2_min_size(bottom_left, panel_size),
+        };
+        sb_push(editor->panels, panel);
+      }
+      {
+        Panel panel = (Panel){
+          .buffer_view = (Buffer_View){
+            .buffer = buffer,
+          },
+          .type = Panel_Type_BUFFER,
+          .rect = rect2_min_size(v2(0, -0.5f), panel_size),
+        };
+        sb_push(editor->panels, panel);
+      }
     }
     
     
@@ -197,88 +194,88 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     Keybind *keybinds = editor->settings.keybinds;
     
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_SET_MARK,
                        .keycode = os_Keycode_SPACE,
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_COPY,
                        .keycode = 'C',
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_PASTE,
                        .keycode = 'V',
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_CUT,
                        .keycode = 'X',
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_LEFT,
                        .keycode = os_Keycode_ARROW_LEFT,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_RIGHT,
                        .keycode = os_Keycode_ARROW_RIGHT,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_UP,
                        .keycode = os_Keycode_ARROW_UP,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_DOWN,
                        .keycode = os_Keycode_ARROW_DOWN,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_REMOVE_BACKWARD,
                        .keycode = os_Keycode_BACKSPACE,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_REMOVE_FORWARD,
                        .keycode = os_Keycode_DELETE,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_NEWLINE,
                        .keycode = os_Keycode_ENTER,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER,
+                       .views = Panel_Type_BUFFER,
                        .command = Command_TAB,
                        .keycode = os_Keycode_TAB,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_BUFFER 
-                       | View_Type_FILE_DIALOG,
+                       .views = Panel_Type_BUFFER 
+                       | Panel_Type_FILE_DIALOG_OPEN,
                        .command = Command_OPEN_FILE_DIALOG,
                        .keycode = 'O',
                        .ctrl = true,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_FILE_DIALOG,
+                       .views = Panel_Type_FILE_DIALOG_OPEN,
                        .command = Command_LISTER_MOVE_UP,
                        .keycode = os_Keycode_ARROW_UP,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_FILE_DIALOG,
+                       .views = Panel_Type_FILE_DIALOG_OPEN,
                        .command = Command_LISTER_MOVE_DOWN,
                        .keycode = os_Keycode_ARROW_DOWN,
                        }));
     sb_push(keybinds, ((Keybind){
-                       .views = View_Type_FILE_DIALOG,
+                       .views = Panel_Type_FILE_DIALOG_OPEN,
                        .command = Command_LISTER_SELECT,
                        .keycode = os_Keycode_ENTER,
                        }));
@@ -358,12 +355,11 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   
   {
     Panel *active_panel = editor->panels + editor->active_panel_index;
-    View *active_view = editor->views + active_panel->view_index;
-    if (active_view->type == View_Type_BUFFER) {
+    if (active_panel->type == Panel_Type_BUFFER) {
       if (!input->ctrl && !input->alt) {
         if (input->char_count > 0) {
           String str = make_string(input->chars, input->char_count);
-          buffer_input_string(&active_view->buffer, str);
+          buffer_input_string(active_panel->buffer_view.buffer, str);
         }
       }
     }
@@ -371,7 +367,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   
   for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
     Panel *panel = editor->panels + panel_index;
-    View *view = editor->views + panel->view_index;
     
     V2 ws = renderer->window_size;
     Rect2 border_rect = rect2_min_max(v2_hadamard(panel->rect.min, ws),
@@ -383,8 +378,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     Rect2 rect = rect2_min_max(v2(border_rect.min.x+4, border_rect.min.y+4),
                                v2(border_rect.max.x+4, border_rect.max.y+4));
     
-    switch (view->type) {
-      case View_Type_FILE_DIALOG: {
+    switch (panel->type) {
+      case Panel_Type_FILE_DIALOG_OPEN: {
         Lister *lister = &editor->current_dir_files;
         u32 file_count = sb_count(lister->items);
         
@@ -404,9 +399,61 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         }
       } break;
       
-      case View_Type_BUFFER: {
-        Buffer *buffer = &view->buffer;
-        buffer_draw(renderer, buffer, rect, editor->settings.theme);
+      case Panel_Type_BUFFER: {
+        Buffer_View *buffer_view = &panel->buffer_view;
+        Buffer *buffer = buffer_view->buffer;
+        
+        V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
+        f32 cursor_line = -cursor_p.y / font->line_spacing;
+        
+        f32 border_top = panel->scroll.y + PADDING;
+        
+        
+        Font *font = renderer->state.font;
+        i8 line_spacing = font->line_spacing;
+        
+        V2 rect_size = rect2_get_size(rect);
+        i32 height_lines = (i32)(rect_size.y / line_spacing);
+        f32 border_bottom = panel->scroll.y + height_lines - PADDING;
+        
+        f32 want_scroll_y = 0;
+        if (cursor_line > border_bottom) {
+          want_scroll_y = cursor_line - border_bottom;
+        } else if (cursor_line < border_top && panel->scroll.y > 0) {
+          want_scroll_y = cursor_line - border_top;
+        }
+        panel->scroll.y += want_scroll_y*0.25f;
+        
+        f32 header_height = (f32)line_spacing*1.5f;
+        
+        draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Syntax_BACKGROUND]));
+        {
+          // draw cursor and marker
+          V2 top_left = v2(rect.min.x, rect.max.y + panel->scroll.y*line_spacing - header_height);
+          
+          i8 cursor_width = font_get_advance(font, 
+                                             get_buffer_char(buffer, buffer->cursor),
+                                             get_buffer_char(buffer, buffer->cursor+1));
+          
+          V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
+          
+          draw_rect(renderer, 
+                    rect2_min_size(v2_add(top_left, cursor_p), v2(cursor_width, line_spacing)), 
+                    v4(0, 1, 0, 1));
+          
+          
+          i8 mark_width = font_get_advance(font, 
+                                           get_buffer_char(buffer, buffer->mark),
+                                           get_buffer_char(buffer, buffer->mark+1));
+          V2 mark_p = get_screen_position_in_buffer(font, buffer, buffer->mark);
+          draw_rect(renderer,
+                    rect2_min_size(v2_add(top_left, mark_p), 
+                                   v2(mark_width, line_spacing)),
+                    v4(0, 1, 0, 0.4f));
+        }
+        
+        
+        buffer_draw(renderer, buffer, rect, editor->settings.theme, panel->scroll);
       } break;
     }
     
@@ -415,5 +462,30 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     renderer_end_render(gl, renderer);
   }
+  
+  
+  end_profiler_event("loop");
+  
+  if (input->keys['P'].went_down && input->alt) {
+    FILE *file;
+    errno_t err = fopen_s(&file, "profile.json", "wb");
+    
+    char begin[] = "[\n";
+    fwrite(begin, array_count(begin)-1, 1, file);
+    
+    for (i32 i = 0; i < profiler_event_count; i++) {
+      Profiler_Event *event = profiler_events + i;
+      char str[512];
+      i32 str_count = sprintf_s(str, 512, "  {\"name\": \"%s\", \"cat\": \"PERF\", \"ts\": %lld, \"ph\": \"%c\", \"pid\": 1, \"tid\": 1},\n", event->name, event->stamp, event->type == Profiler_Event_Type_BEGIN ? 'B' : 'E');
+      fwrite(str, str_count, 1, file);
+    }
+    fseek(file, -2, SEEK_CUR);
+    
+    char end[] = "\n]";
+    fwrite(end, array_count(end)-1, 1, file);
+    
+    fclose(file);
+  }
+  
 }
 

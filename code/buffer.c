@@ -392,7 +392,8 @@ void buffer_input_string(Buffer *buffer, String str) {
 
 #define PADDING 4
 
-void buffer_draw(Renderer *renderer, Buffer *buffer, Rect2 rect, Color_Theme theme) {
+void buffer_draw(Renderer *renderer, Buffer *buffer, 
+                 Rect2 rect, Color_Theme theme, V2 scroll) {
   begin_profiler_event("buffer_draw");
   
   Font *font = renderer->state.font;
@@ -404,49 +405,9 @@ void buffer_draw(Renderer *renderer, Buffer *buffer, Rect2 rect, Color_Theme the
   rect.max.y -= header_height;
   V2 rect_size = rect2_get_size(rect);
   
-  
-  draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Syntax_BACKGROUND]));
-  
-  i32 first_visible_line = (i32)buffer->scroll_y;
+  i32 first_visible_line = (i32)scroll.y;
   i32 height_lines = (i32)(rect_size.y / line_spacing);
   
-  {
-    // draw cursor and marker
-    V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
-    f32 cursor_line = -cursor_p.y / font->line_spacing;
-    f32 border_top = buffer->scroll_y + PADDING;
-    f32 border_bottom = buffer->scroll_y + height_lines - PADDING;
-    
-    f32 want_scroll_y = 0;
-    if (cursor_line > border_bottom) {
-      want_scroll_y = cursor_line - border_bottom;
-    } else if (cursor_line < border_top && buffer->scroll_y > 0) {
-      want_scroll_y = cursor_line - border_top;
-    }
-    buffer->scroll_y += want_scroll_y*0.25f;
-    
-    
-    V2 top_left = v2(rect.min.x, rect.max.y + buffer->scroll_y*line_spacing);
-    
-    
-    
-    i8 cursor_width = font_get_advance(font, 
-                                       get_buffer_char(buffer, buffer->cursor),
-                                       get_buffer_char(buffer, buffer->cursor+1));
-    draw_rect(renderer, 
-              rect2_min_size(v2_add(top_left, cursor_p), v2(cursor_width, line_spacing)), 
-              v4(0, 1, 0, 1));
-    
-    
-    i8 mark_width = font_get_advance(font, 
-                                     get_buffer_char(buffer, buffer->mark),
-                                     get_buffer_char(buffer, buffer->mark+1));
-    V2 mark_p = get_screen_position_in_buffer(font, buffer, buffer->mark);
-    draw_rect(renderer,
-              rect2_min_size(v2_add(top_left, mark_p), 
-                             v2(mark_width, line_spacing)),
-              v4(0, 1, 0, 0.4f));
-  }
   
   i32 first_visible_token = 0;
   i32 skipped_lines = 0;
@@ -464,7 +425,7 @@ void buffer_draw(Renderer *renderer, Buffer *buffer, Rect2 rect, Color_Theme the
   
   
   V2 offset = v2(rect.min.x, 
-                 rect.max.y - (skipped_lines - buffer->scroll_y)*line_spacing);
+                 rect.max.y - (skipped_lines - scroll.y)*line_spacing);
   
   i32 line_index = 0;
   

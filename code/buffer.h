@@ -15,17 +15,14 @@ typedef struct {
   i32 capacity;
   
   i32 cursor;
-  i32 preferred_col_pos;
   i32 mark;
+  i32 preferred_col_pos;
   
-  f32 scroll_y;
-  
+  // TODO(lvl5): exchange shouldn't be in the buffer
   char exchange[MAX_EXCHANGE_COUNT];
   i32 exchange_count;
   
   Token *tokens;
-  
-  bool context_menu;
 } Buffer;
 
 

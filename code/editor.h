@@ -20,6 +20,7 @@ typedef enum {
   Command_LISTER_MOVE_UP,
   Command_LISTER_MOVE_DOWN,
   Command_LISTER_SELECT,
+  Command_SAVE_BUFFER,
 } Command;
 
 typedef enum {
@@ -47,11 +48,12 @@ typedef struct {
 
 
 typedef enum {
-  View_Type_NONE,
-  View_Type_BUFFER,
-  View_Type_FILE_DIALOG,
-  View_Type_SETTINGS,
-} View_Type;
+  Panel_Type_NONE,
+  Panel_Type_BUFFER,
+  Panel_Type_FILE_DIALOG_OPEN,
+  Panel_Type_FILE_DIALOG_NEW,
+  Panel_Type_SETTINGS,
+} Panel_Type;
 
 
 // TODO: hashtable this shit
@@ -60,7 +62,7 @@ typedef struct {
   bool ctrl;
   bool alt;
   os_Keycode keycode;
-  View_Type views;
+  Panel_Type views;
   
   Command command;
 } Keybind;
@@ -76,46 +78,31 @@ typedef struct {
 } Lister;
 
 
-
-
 typedef struct {
-  i32 view_index;
-  Rect2 rect;
-} Panel;
-
-
-typedef enum {
-  File_Dialog_Type_NONE,
-  File_Dialog_Type_OPEN,
-  File_Dialog_Type_NEW,
-} File_Dialog_Type;
-
-typedef struct {
-  int _;
-} File_Dialog;
-
-typedef struct {
-  int _;
-} Settings_Editor;
+  Buffer *buffer;
+  i32 visible_cursor;
+  i32 preferred_col_pos;
+  i32 visible_mark;
+} Buffer_View;
 
 typedef struct {
   union {
-    Buffer buffer;
-    File_Dialog file_dialog;
-    Settings_Editor settings_editor;
+    Buffer_View buffer_view;
   };
-  View_Type type;
-} View;
+  
+  Panel_Type type;
+  Rect2 rect;
+  String name;
+  V2 scroll;
+} Panel;
 
 typedef struct {
+  Buffer *buffers;
   Panel *panels;
   i32 active_panel_index;
   
-  View *views;
-  
-  Settings settings;
-  String current_dir;
   Lister current_dir_files;
+  Settings settings;
 } Editor;
 
 typedef struct {
@@ -123,6 +110,7 @@ typedef struct {
   Font font;
   Editor editor;
 } App_State;
+
 
 #define EDITOR_H
 #endif
