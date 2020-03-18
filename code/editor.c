@@ -299,8 +299,11 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     monokai.colors[Syntax_CURSOR] = 0xFF00FF00;
     monokai.colors[Syntax_NUMBER] = monokai.colors[Syntax_MACRO];
     monokai.colors[Syntax_STRING] = 0xFFE6DB74;
-    editor->settings.theme = monokai;
     
+    for (i32 i = 0; i < Syntax_count; i++) {
+      monokai.colors[i] = color_u32_to_opengl_u32(monokai.colors[i]);
+    }
+    editor->settings.theme = monokai;
     
     glEnable(GL_SCISSOR_TEST);
   }

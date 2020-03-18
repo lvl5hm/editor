@@ -275,7 +275,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         
         i32 added = 0;
         for (i32 char_index_relative = 0;
-             char_index_relative < buffer->count - 1; // last symbol is 0
+             char_index_relative < buffer->count; // last symbol is 0
              char_index_relative++) 
         {
           if (char_index_relative == gap_start) {
@@ -287,7 +287,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
           if (first == '\n') {
             offset.x = rect.min.x;
             offset.y -= font->line_spacing;
-            if (offset.y < -400) {
+            if (offset.y < -500) {
               goto end;
             }
             continue;
@@ -301,11 +301,14 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
           
           
           M4 m = matrix;
-          m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
-                                            offset.y + origin.y, 
-                                            0)));
-          m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
+          m.e30 += (offset.x + origin.x)*m.e00;
+          m.e31 += (offset.y + origin.y)*m.e11;
+          m.e00 *= width;
+          m.e11 *= height;
           
+          
+          i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
+          offset.x += advance;
           
           Syntax syntax = buffer->colors[char_index_relative];
           Quad_Instance inst = {
@@ -314,15 +317,10 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
             .texture_y = (u16)rect.min.y,
             .texture_w = width,
             .texture_h = height,
-            .color = color_u32_to_opengl_u32(theme->colors[syntax]),
+            .color = theme->colors[syntax],
           };
           
           sb_push(instances, inst);
-          
-          // token strings are guaranteed to have one additional char
-          // in the end for kerning
-          i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
-          offset.x += advance;
         }
         
         
