@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include <lvl5_random.h>
+#include "buffer.c"
 
 void init_renderer(gl_Funcs gl, Renderer *r, GLuint shader, Font *font, V2 window_size) {
   glEnable(GL_BLEND);
@@ -95,7 +96,7 @@ void renderer_begin_render(Renderer *r, Rect2 rect) {
   V2 ws = r->window_size;
   r->state.matrix = m4_transpose(m4_orthographic(-ws.x*0.5f, ws.x*0.5f, 
                                                  -ws.y*0.5f, ws.y*0.5f,
-                                                 -1, 1));
+                                                 1, -1));
   sb_count(r->items) = 0;
   
   V2i min = v2i((i32)(rect.min.x + ws.x*0.5f), (i32)(rect.min.y + ws.y*0.5f));
@@ -164,12 +165,22 @@ void draw_rect_outline(Renderer *r, Rect2 rect, f32 thick, V4 color) {
                               v2(thick, size.y)), color);
 }
 
-void renderer_end_render(gl_Funcs gl, Renderer *r) {
-  static Rand seq = {0};
-  if (seq.seed[0] == 0) {
-    seq = make_random_sequence(371284738);
-  }
+void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *theme, V2 scroll) {
+  Render_Item item = {
+    .type = Render_Type_BUFFER,
+    .state = r->state,
+  };
+  item.buffer.theme = theme;
+  item.buffer.rect = rect;
+  item.buffer.scroll = scroll;
+  item.buffer.view = view;
   
+  draw_rect(r, rect, color_u32_to_v4(theme->colors[Syntax_BACKGROUND]));
+  sb_push(r->items, item);
+}
+
+void renderer_end_render(gl_Funcs gl, Renderer *r) {
+  begin_profiler_event("renderer_output");
   
   push_scratch_context();
   
@@ -187,7 +198,6 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         
         for (u32 char_index = 0; char_index < s.count; char_index++) {
           char first = s.data[char_index] - font->first_codepoint;
-          char second = s.data[char_index+1] - font->first_codepoint;
           
           Rect2i rect = font->atlas.rects[first];
           V2 origin = font->origins[first];
@@ -227,7 +237,6 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         V2 size = rect2_get_size(rect);
         
         M4 m = item->state.matrix;
-        
         m = m4_mul_m4(m, m4_translated(v3(rect.min.x,
                                           rect.min.y, 
                                           0)));
@@ -247,6 +256,118 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         };
         sb_push(instances, inst);
       } break;
+      
+      case Render_Type_BUFFER: {
+        begin_profiler_event("render_buffer");
+        
+        M4 matrix = item->state.matrix;
+        Font *font = item->state.font;
+        
+        Buffer_View *view = item->buffer.view;
+        Buffer *buffer = view->buffer;
+        Color_Theme *theme = item->buffer.theme;
+        V2 scroll = item->buffer.scroll;
+        Rect2 rect = item->buffer.rect;
+        
+        V2 offset = v2(rect.min.x, rect.max.y);
+        i32 gap_start = get_gap_start(buffer);
+        i32 gap_count = get_gap_count(buffer);
+        
+        for (i32 char_index = 0;
+             char_index < gap_start; // last symbol is 0
+             char_index++) 
+        {
+          char first = buffer->data[char_index] - font->first_codepoint;
+          if (first == '\n') {
+            offset.x = rect.min.x;
+            offset.y -= font->line_spacing;
+            if (offset.y < -400) {
+              goto end;
+            }
+            continue;
+          }
+          
+          Rect2i rect = font->atlas.rects[first];
+          V2 origin = font->origins[first];
+          
+          u16 width = (u16)(rect.max.x - rect.min.x);
+          u16 height = (u16)(rect.max.y - rect.min.y);
+          
+          
+          M4 m = matrix;
+          m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
+                                            offset.y + origin.y, 
+                                            0)));
+          m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
+          
+          
+          Syntax syntax = buffer->colors[char_index];
+          Quad_Instance inst = {
+            .matrix = m,
+            .texture_x = (u16)rect.min.x,
+            .texture_y = (u16)rect.min.y,
+            .texture_w = width,
+            .texture_h = height,
+            .color = color_u32_to_opengl_u32(theme->colors[syntax]),
+          };
+          
+          sb_push(instances, inst);
+          
+          // token strings are guaranteed to have one additional char
+          // in the end for kerning
+          i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
+          offset.x += advance;
+        }
+        
+        
+        for (i32 char_index = gap_start + gap_count;
+             char_index < buffer->count - 1 + gap_count; // last symbol is 0
+             char_index++) 
+        {
+          char first = buffer->data[char_index] - font->first_codepoint;
+          if (first == '\n') {
+            offset.x = rect.min.x;
+            offset.y -= font->line_spacing;
+            if (offset.y < -500) {
+              goto end;
+            }
+            continue;
+          }
+          
+          Rect2i rect = font->atlas.rects[first];
+          V2 origin = font->origins[first];
+          
+          u16 width = (u16)(rect.max.x - rect.min.x);
+          u16 height = (u16)(rect.max.y - rect.min.y);
+          
+          
+          M4 m = matrix;
+          m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
+                                            offset.y + origin.y, 
+                                            0)));
+          m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
+          
+          
+          Syntax syntax = buffer->colors[char_index - gap_count];
+          Quad_Instance inst = {
+            .matrix = m,
+            .texture_x = (u16)rect.min.x,
+            .texture_y = (u16)rect.min.y,
+            .texture_w = width,
+            .texture_h = height,
+            .color = color_u32_to_opengl_u32(theme->colors[syntax]),
+          };
+          
+          sb_push(instances, inst);
+          
+          // token strings are guaranteed to have one additional char
+          // in the end for kerning
+          i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
+          offset.x += advance;
+        }
+        end:
+        end_profiler_event("render_buffer");
+      } break;
     }
   }
   
@@ -261,4 +382,6 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
   gl.DrawArraysInstanced(GL_TRIANGLES, 0, 6, sb_count(instances));
   
   pop_context();
+  
+  end_profiler_event("renderer_output");
 }

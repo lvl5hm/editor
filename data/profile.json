@@ -1,0 +1,16 @@
+[
+  {"name": "loop", "cat": "PERF", "ts": 790418266700120, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "input", "cat": "PERF", "ts": 790418271825990, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "input", "cat": "PERF", "ts": 790418271832626, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "render", "cat": "PERF", "ts": 790418272044858, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "renderer_output", "cat": "PERF", "ts": 790418272056754, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "render_buffer", "cat": "PERF", "ts": 790418272063118, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "render_buffer", "cat": "PERF", "ts": 790418272863782, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "renderer_output", "cat": "PERF", "ts": 790418273224270, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "renderer_output", "cat": "PERF", "ts": 790418273230866, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "render_buffer", "cat": "PERF", "ts": 790418273233438, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "render_buffer", "cat": "PERF", "ts": 790418273263366, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "renderer_output", "cat": "PERF", "ts": 790418273372442, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "render", "cat": "PERF", "ts": 790418273372768, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "loop", "cat": "PERF", "ts": 790418273372918, "ph": "E", "pid": 1, "tid": 1}
+]

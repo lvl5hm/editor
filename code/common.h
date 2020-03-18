@@ -3,7 +3,47 @@
 #include <lvl5_os.h>
 #include <lvl5_types.h>
 #include <lvl5_opengl.h>
-#include "renderer.h"
+#include <lvl5_files.h>
+
+
+typedef enum {
+  Profiler_Event_Type_NONE,
+  Profiler_Event_Type_BEGIN,
+  Profiler_Event_Type_END,
+} Profiler_Event_Type;
+
+typedef struct {
+  u64 stamp;
+  char *name;
+  Profiler_Event_Type type;
+} Profiler_Event;
+
+Profiler_Event *profiler_events = null;
+i32 profiler_event_capacity = 0;
+i32 profiler_event_count = 0;
+
+
+void add_profiler_event(char *name, Profiler_Event_Type type) {
+  if (profiler_event_count < profiler_event_capacity) {
+    Profiler_Event *event = profiler_events + profiler_event_count++;
+    event->stamp = __rdtsc();
+    event->name = name;
+    event->type = type;
+  }
+}
+
+#define begin_profiler_event(name) add_profiler_event(name, Profiler_Event_Type_BEGIN)
+#define end_profiler_event(name) add_profiler_event(name, Profiler_Event_Type_END)
+
+#ifdef EDITOR_SLOW
+
+
+
+#else
+#define assert
+
+#endif
+
 
 typedef struct {
   gl_Funcs gl;

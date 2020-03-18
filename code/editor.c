@@ -1,6 +1,5 @@
 #include "editor.h"
-#include "buffer.c"
-
+#include "renderer.c"
 
 Keybind *get_keybind(Editor *editor, os_Keycode keycode, 
                      bool shift, bool ctrl, bool alt) 
@@ -105,7 +104,7 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       os.read_file(file, file_memory, 0, file_size);
       os.close_file(file);
       
-      String str = make_string(file_memory, file_size + 1);
+      String str = make_string(file_memory, file_size);
       Buffer buffer = make_empty_buffer();
       buffer_insert_string(&buffer, str);
       set_cursor(&buffer, 0);
@@ -158,6 +157,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       
       sb_push(editor->buffers, make_empty_buffer());
       Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
+      buffer_insert_string(buffer, const_string("typedef struct Foo Foo;\n"
+                                                "void Foo stahp;"));
       
       
       V2 ws = renderer->window_size;
@@ -365,6 +366,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     }
   }
   
+  
+  begin_profiler_event("render");
   for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
     Panel *panel = editor->panels + panel_index;
     
@@ -403,57 +406,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         Buffer_View *buffer_view = &panel->buffer_view;
         Buffer *buffer = buffer_view->buffer;
         
-        V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
-        f32 cursor_line = -cursor_p.y / font->line_spacing;
         
-        f32 border_top = panel->scroll.y + PADDING;
-        
-        
-        Font *font = renderer->state.font;
-        i8 line_spacing = font->line_spacing;
-        
-        V2 rect_size = rect2_get_size(rect);
-        i32 height_lines = (i32)(rect_size.y / line_spacing);
-        f32 border_bottom = panel->scroll.y + height_lines - PADDING;
-        
-        f32 want_scroll_y = 0;
-        if (cursor_line > border_bottom) {
-          want_scroll_y = cursor_line - border_bottom;
-        } else if (cursor_line < border_top && panel->scroll.y > 0) {
-          want_scroll_y = cursor_line - border_top;
-        }
-        panel->scroll.y += want_scroll_y*0.25f;
-        
-        f32 header_height = (f32)line_spacing*1.5f;
-        
-        draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Syntax_BACKGROUND]));
-        {
-          // draw cursor and marker
-          V2 top_left = v2(rect.min.x, rect.max.y + panel->scroll.y*line_spacing - header_height);
-          
-          i8 cursor_width = font_get_advance(font, 
-                                             get_buffer_char(buffer, buffer->cursor),
-                                             get_buffer_char(buffer, buffer->cursor+1));
-          
-          V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
-          
-          draw_rect(renderer, 
-                    rect2_min_size(v2_add(top_left, cursor_p), v2(cursor_width, line_spacing)), 
-                    v4(0, 1, 0, 1));
-          
-          
-          i8 mark_width = font_get_advance(font, 
-                                           get_buffer_char(buffer, buffer->mark),
-                                           get_buffer_char(buffer, buffer->mark+1));
-          V2 mark_p = get_screen_position_in_buffer(font, buffer, buffer->mark);
-          draw_rect(renderer,
-                    rect2_min_size(v2_add(top_left, mark_p), 
-                                   v2(mark_width, line_spacing)),
-                    v4(0, 1, 0, 0.4f));
-        }
-        
-        
-        buffer_draw(renderer, buffer, rect, editor->settings.theme, panel->scroll);
+        draw_buffer_view(renderer, rect, buffer_view, &editor->settings.theme, panel->scroll);
       } break;
     }
     
@@ -462,7 +416,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     renderer_end_render(gl, renderer);
   }
-  
+  end_profiler_event("render");
   
   end_profiler_event("loop");
   

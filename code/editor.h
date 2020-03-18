@@ -23,24 +23,7 @@ typedef enum {
   Command_SAVE_BUFFER,
 } Command;
 
-typedef enum {
-  Syntax_BACKGROUND,
-  Syntax_DEFAULT,
-  Syntax_COMMENT,
-  Syntax_TYPE,
-  Syntax_MACRO,
-  Syntax_FUNCTION,
-  Syntax_ARG,
-  Syntax_OPERATOR,
-  Syntax_KEYWORD,
-  Syntax_CURSOR,
-  Syntax_NUMBER,
-  Syntax_STRING,
-  
-  Syntax_count,
-} Syntax;
-
-typedef struct {
+typedef struct Color_Theme {
   String name;
   u32 colors[Syntax_count];
 } Color_Theme;
@@ -78,7 +61,7 @@ typedef struct {
 } Lister;
 
 
-typedef struct {
+typedef struct Buffer_View {
   Buffer *buffer;
   i32 visible_cursor;
   i32 preferred_col_pos;
@@ -104,6 +87,8 @@ typedef struct {
   Lister current_dir_files;
   Settings settings;
 } Editor;
+
+#include "renderer.h"
 
 typedef struct {
   Renderer renderer;

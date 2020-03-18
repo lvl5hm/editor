@@ -1,6 +1,4 @@
 #ifndef RENDERER_H
-#include "font.h"
-#include <lvl5_stretchy_buffer.h>
 #include "parser.h"
 #include <lvl5_opengl.h>
 
@@ -20,10 +18,14 @@ typedef struct {
 } Renderer_State;
 
 typedef enum {
+  Render_Type_NONE,
   Render_Type_STRING,
   Render_Type_RECT,
-  Render_Type_TOKEN,
+  Render_Type_BUFFER,
 } Render_Type;
+
+typedef struct Buffer_View Buffer_View;
+typedef struct Color_Theme Color_Theme;
 
 typedef struct {
   union {
@@ -34,8 +36,11 @@ typedef struct {
       Rect2 rect;
     } rect;
     struct {
-      Token *token;
-    } token;
+      Rect2 rect;
+      Buffer_View *view;
+      Color_Theme *theme;
+      V2 scroll;
+    } buffer;
   };
   Renderer_State state;
   Render_Type type;

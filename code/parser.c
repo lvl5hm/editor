@@ -4,7 +4,7 @@
 
 // token strings always include one additional char for kerning
 String token_to_string(Buffer *b, Token *t) {
-  String result = buffer_part_to_string(b, t->start, t->start + t->count + 1);
+  String result = buffer_part_to_string(b, t->start, t->end + 1);
   result.count--;
   return result;
 }
@@ -42,10 +42,37 @@ b32 is_whitespace(char c) {
 }
 
 
-Token *buffer_tokenize(Buffer *b) {
+
+void set_color(Parser *p, Token *t, Syntax color) {
+  for (i32 i = t->start; i < t->end; i++) {
+    p->colors[i] = color;
+  }
+}
+
+void set_color_by_type(Parser *p, Token *t) {
+  Syntax syntax = Syntax_DEFAULT;
+  if (t->kind >= T_KEYWORD_FIRST && t->kind <= T_KEYWORD_LAST ||
+      t->kind == T_POUND) {
+    syntax = Syntax_KEYWORD;
+  } else if (t->kind >= T_OPERATOR_FIRST && t->kind <= T_OPERATOR_LAST) {
+    syntax = Syntax_OPERATOR;
+  } else if (t->kind == T_INT || t->kind == T_FLOAT) {
+    syntax = Syntax_NUMBER;
+  } else if (t->kind == T_STRING || t->kind == T_CHAR) {
+    syntax = Syntax_STRING;
+  } else if (t->kind == T_COMMENT) {
+    // TODO(lvl5): comments need to be skipped for the parser
+    syntax = Syntax_COMMENT;
+  }
+  set_color(p, t, syntax);
+}
+
+Token *buffer_tokenize(Parser *p, Buffer *b) {
   begin_profiler_event("tokenize");
   
+  push_scratch_context();
   Token *tokens = sb_new(Token, 1024);
+  pop_context();
   
   i32 line = 1;
   i32 col = 1;
@@ -63,6 +90,9 @@ Token *buffer_tokenize(Buffer *b) {
 #define skip(n) { \
     next(n); \
     token_start += n; \
+    for (i32 i = token_start-n; i < token_start; i++) { \
+      p->colors[i] = Syntax_DEFAULT; \
+    } \
   }
 #define eat() { \
     next(1); \
@@ -70,7 +100,8 @@ Token *buffer_tokenize(Buffer *b) {
 #define end_no_continue(tok_kind) { \
     t.kind = tok_kind; \
     t.start = token_start; \
-    t.count = i - token_start; \
+    t.end = i; \
+    set_color_by_type(p, &t); \
     token_start = i; \
     sb_push(tokens, t); \
   }
@@ -115,28 +146,26 @@ Token *buffer_tokenize(Buffer *b) {
         skip(1);
       } break;
       case ' ': {
-        eat();
-        end(T_SPACE);
+        skip(1);
       } break;
       case '\n': {
         line++;
         col = 1;
-        eat();
-        end(T_NEWLINE);
+        skip(1);
       } break;
       case '"': {
         eat();
-        // TODO(lvl5): deal with escape sequences
         while (true) {
           if (get(0) == '\\') {
             eat();
             eat();
-          } else if (get(0) == '\"') {
+          } else if (get(0) == '"') {
             break;
           } else if (get(0) == '\n') {
             break;
           } else if (get(0) == '\0') {
-            goto end;
+            i--;
+            break;
           } else {
             eat();
           }
@@ -153,8 +182,11 @@ Token *buffer_tokenize(Buffer *b) {
             eat();
           } else if (get(0) == '\'') {
             break;
+          } else if (get(0) == '\n') {
+            break;
           } else if (get(0) == '\0') {
-            goto end;
+            i--;
+            break;
           } else {
             eat();
           }
@@ -216,7 +248,8 @@ Token *buffer_tokenize(Buffer *b) {
         if (kind) {
           t.kind = kind;
           t.start = token_start;
-          t.count = i - token_start;
+          t.end = i;
+          set_color(p, &t, Syntax_KEYWORD);
           token_start = i; 
           sb_push(tokens, t); 
           continue;
@@ -239,8 +272,7 @@ Token *buffer_tokenize(Buffer *b) {
           while (!(get(0) == '*' && get(1) == '/')) {
             if (get(0) == '\n') {
               end_no_continue(T_COMMENT);
-              eat();
-              end_no_continue(T_NEWLINE);
+              skip(1);
             } else if (get(0) == '\0') {
               end_no_continue(T_COMMENT);
               goto end;
@@ -268,8 +300,7 @@ Token *buffer_tokenize(Buffer *b) {
         
         i32 j = 0;
         while (get(j) == ' ') {
-          eat();
-          end_no_continue(T_SPACE);
+          skip(1);
         }
         
         if (get(j) == '<') {
@@ -340,63 +371,13 @@ Symbol *get_symbol(Parser *p, Token *t) {
   return result;
 }
 
-
-i32 skip_whitespace_backward(Parser *p, i32 offset) {
-  begin_profiler_event("skip_whitespace_backward");
-  i32 result = offset;
-  while (p->tokens[result].kind == T_SPACE  || p->tokens[result].kind == T_NEWLINE) {
-    result--;
-  }
-  result = max(result, 0);
-  end_profiler_event("skip_whitespace_backward");
-  return result;
-}
-
-
-i32 skip_whitespace_forward(Parser *p, i32 offset) {
-  begin_profiler_event("skip_whitespace_forward");
-  i32 result = offset;
-  while (p->tokens[result].kind == T_SPACE ||
-         p->tokens[result].kind == T_NEWLINE) 
-  {
-    result++;
-  }
-  
-  result = min(result, (i32)sb_count(p->tokens));
-  end_profiler_event("skip_whitespace_backward");
-  return result;
-}
-
 Token *peek_token(Parser *p, i32 offset) {
-  Token *result = null;
-  if (p->i + offset >= (i32)sb_count(p->tokens)) {
-    result = alloc_struct(Token);
-    Token zero_token = {0};
-    *result = zero_token;
-  } else {
-    i32 index = p->i;
-    while (offset < 0) {
-      index--;
-      index = skip_whitespace_backward(p, index);
-      offset++;
-    }
-    while (offset > 0) {
-      index++;
-      index = skip_whitespace_forward(p, index);
-      offset--;
-    }
-    result = p->tokens + index;
-  }
-  
+  Token *result = p->tokens + p->i + offset;
   return result;
 }
 
 void next_token(Parser *p) {
-  if (p->i >= 10835) {
-    int bre = 32;
-  }
   p->i++;
-  p->i = skip_whitespace_forward(p, p->i);
   assert(p->i <= (i32)sb_count(p->tokens));
 }
 
@@ -411,10 +392,7 @@ bool accept_token(Parser *p, Token_Type kind) {
 
 
 
-
-
-
-void add_symbol(Parser *p, String name, Ast_Type kind) {
+void add_symbol(Parser *p, String name, Syntax kind) {
   Symbol s = (Symbol){ .name = name, .kind = kind };
   sb_push(p->symbols, s);
 }
@@ -478,12 +456,12 @@ void parse_misc(Parser *p) {
   if (t->kind == T_NAME) {
     Symbol *s = get_symbol(p, t);
     if (s) {
-      if (s->kind == A_FUNCTION) {
-        t->ast_kind = A_FUNCTION;
-      } else if (s->kind == A_MACRO) {
-        t->ast_kind = A_MACRO;
-      } else if (s->kind == A_ENUM_MEMBER) {
-        t->ast_kind = A_ENUM_MEMBER;
+      if (s->kind == Syntax_FUNCTION) {
+        set_color(p, t, Syntax_FUNCTION);
+      } else if (s->kind == Syntax_MACRO) {
+        set_color(p, t, Syntax_MACRO);
+      } else if (s->kind == Syntax_ENUM_MEMBER) {
+        set_color(p, t, Syntax_ENUM_MEMBER);
       }
     }
   }
@@ -498,8 +476,8 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
     
     if (is_typedef) {
       // token_to_string is scratch
-      add_symbol(p, token_to_string(p->buffer, result), A_TYPE);
-      result->ast_kind = A_TYPE;
+      add_symbol(p, token_to_string(p->buffer, result), Syntax_TYPE);
+      set_color(p, result, Syntax_TYPE);
     }
   } else if (accept_token(p, T_LPAREN)) {
     result = parse_declarator(p, is_typedef);
@@ -513,8 +491,8 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
   } else if (accept_token(p, T_LPAREN)) {
     // function decl
     if (!is_typedef) {
-      result->ast_kind = A_FUNCTION;
-      add_symbol(p, token_to_string(p->buffer, result), A_FUNCTION);
+      add_symbol(p, token_to_string(p->buffer, result), Syntax_FUNCTION);
+      set_color(p, result, Syntax_FUNCTION);
     }
     if (!accept_token(p, T_RPAREN)) {
       do {
@@ -564,9 +542,9 @@ bool parse_struct_specifier(Parser *p) {
     bool has_name = false, has_body = false;
     if (accept_token(p, T_NAME)) {
       Token *struct_name = peek_token(p, -1);
-      struct_name->ast_kind = A_TYPE;
+      set_color(p, struct_name, Syntax_TYPE);
       // token_to_string is scratch
-      add_symbol(p, token_to_string(p->buffer, struct_name), A_TYPE);
+      add_symbol(p, token_to_string(p->buffer, struct_name), Syntax_TYPE);
       has_name = true;
     }
     
@@ -594,8 +572,8 @@ bool parse_struct_specifier(Parser *p) {
 bool parse_typename(Parser *p) {
   Token *t = peek_token(p, 0);
   Symbol *s = get_symbol(p, t);
-  if (s && s->kind == A_TYPE) {
-    t->ast_kind = A_TYPE;
+  if (s && s->kind == Syntax_TYPE) {
+    set_color(p, t, Syntax_TYPE);
     next_token(p);
     return true;
   }
@@ -608,9 +586,9 @@ bool parse_enum_specifier(Parser *p) {
     bool has_name = false, has_body = false;
     if (accept_token(p, T_NAME)) {
       Token *struct_name = peek_token(p, -1);
-      struct_name->ast_kind = A_TYPE;
+      set_color(p, struct_name, Syntax_TYPE);
       // token_to_string is scratch
-      add_symbol(p, token_to_string(p->buffer, struct_name), A_TYPE);
+      add_symbol(p, token_to_string(p->buffer, struct_name), Syntax_TYPE);
       has_name = true;
     }
     
@@ -618,8 +596,8 @@ bool parse_enum_specifier(Parser *p) {
       while (!accept_token(p, T_RCURLY)) {
         if (accept_token(p, T_NAME)) {
           Token *name = peek_token(p, -1);
-          name->ast_kind = A_ENUM_MEMBER;
-          add_symbol(p, token_to_string(p->buffer, name), A_ENUM_MEMBER);
+          set_color(p, name, Syntax_ENUM_MEMBER);
+          add_symbol(p, token_to_string(p->buffer, name), Syntax_ENUM_MEMBER);
           if (accept_token(p, T_ASSIGN)) {
             while (!accept_token(p, T_COMMA)) {
               next_token(p);
@@ -698,12 +676,13 @@ void parse_program(Parser *p) {
     Token *t = peek_token(p, 0);
     switch (t->kind) {
       case T_POUND: {
+        set_color(p, t, Syntax_KEYWORD);
         if (string_compare(token_to_string(p->buffer, t),
                            const_string("#define"))) {
           next_token(p);
           Token *macro = peek_token(p, 0);
-          macro->ast_kind = A_MACRO;
-          add_symbol(p, token_to_string(p->buffer, macro), A_MACRO);
+          set_color(p, macro, Syntax_MACRO);
+          add_symbol(p, token_to_string(p->buffer, macro), Syntax_MACRO);
           next_token(p);
         } else {
           parse_misc(p);
@@ -722,23 +701,26 @@ void parse_program(Parser *p) {
   end_profiler_event("parse");
 }
 
-Token *buffer_parse(Buffer *b) {
+Syntax *buffer_parse(Buffer *b) {
   Parser parser = {
     .i = 0,
-    .tokens = buffer_tokenize(b),
+    .tokens = null,
     .buffer = b,
     .symbols = sb_new(Symbol, 32),
+    .colors = sb_new(Syntax, b->count),
   };
+  parser.tokens = buffer_tokenize(&parser, b);
   Parser *p = &parser;
-  add_symbol(p, const_string("char"), A_TYPE);
-  add_symbol(p, const_string("void"), A_TYPE);
-  add_symbol(p, const_string("short"), A_TYPE);
-  add_symbol(p, const_string("int"), A_TYPE);
-  add_symbol(p, const_string("long"), A_TYPE);
-  add_symbol(p, const_string("float"), A_TYPE);
-  add_symbol(p, const_string("double"), A_TYPE);
-  
+  add_symbol(p, const_string("char"), Syntax_TYPE);
+  add_symbol(p, const_string("void"), Syntax_TYPE);
+  add_symbol(p, const_string("short"), Syntax_TYPE);
+  add_symbol(p, const_string("int"), Syntax_TYPE);
+  add_symbol(p, const_string("long"), Syntax_TYPE);
+  add_symbol(p, const_string("float"), Syntax_TYPE);
+  add_symbol(p, const_string("double"), Syntax_TYPE);
   
   parse_program(&parser);
-  return parser.tokens;
+  
+  
+  return parser.colors;
 }

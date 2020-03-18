@@ -2,7 +2,6 @@
 #include <lvl5_stretchy_buffer.h>
 #include "parser.c"
 #include "font.c"
-#include "renderer.c"
 
 inline i32 get_gap_count(Buffer *b) {
   i32 result = b->capacity - b->count;
@@ -107,10 +106,12 @@ void set_cursor(Buffer *b, i32 pos) {
 }
 
 void buffer_changed(Buffer *b) {
-  if (b->tokens) {
-    sb_free(b->tokens);
+#if 1
+  if (b->colors) {
+    sb_free(b->colors);
   }
-  b->tokens = buffer_parse(b);
+#endif
+  b->colors = buffer_parse(b);
 }
 
 
@@ -387,11 +388,7 @@ void buffer_input_string(Buffer *buffer, String str) {
   }
 }
 
-// TODO: if we place the gap before or after visible buffer part,
-// we won't have to check where we are reaing token chars from
-
-#define PADDING 4
-
+#if 0
 void buffer_draw(Renderer *renderer, Buffer *buffer, 
                  Rect2 rect, Color_Theme theme, V2 scroll) {
   begin_profiler_event("buffer_draw");
@@ -498,3 +495,4 @@ void buffer_draw(Renderer *renderer, Buffer *buffer,
   
   end_profiler_event("buffer_draw");
 }
+#endif
