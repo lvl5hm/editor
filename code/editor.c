@@ -122,10 +122,6 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   App_State *state = (App_State *)memory->data;
   
-  
-  profiler_event_count = 0;
-  begin_profiler_event("loop");
-  
   if(memory->reloaded) {
     global_context_info = os.context_info;
     profiler_events = os.profiler_events;
@@ -157,9 +153,16 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       
       sb_push(editor->buffers, make_empty_buffer());
       Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
-      buffer_insert_string(buffer, const_string("typedef struct Foo Foo;\n"
-                                                "void Foo stahp;"));
       
+      os_File file = os.open_file(const_string("src/foo.c"));
+      u64 file_size = os.get_file_size(file);
+      char *file_memory = alloc_array(char, file_size);
+      os.read_file(file, file_memory, 0, file_size);
+      os.close_file(file);
+      
+      String str = make_string(file_memory, file_size);
+      buffer_insert_string(buffer, str);
+      set_cursor(buffer, 0);
       
       V2 ws = renderer->window_size;
       V2 bottom_left = v2(-0.5f, -0.5f);
@@ -183,7 +186,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
           .type = Panel_Type_BUFFER,
           .rect = rect2_min_size(v2(0, -0.5f), panel_size),
         };
-        sb_push(editor->panels, panel);
+        //sb_push(editor->panels, panel);
       }
     }
     
@@ -306,8 +309,13 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   Font *font = renderer->state.font;
   gl_Funcs gl = os.gl;
   
+  profiler_event_count = 0;
+  begin_profiler_event("loop");
   scratch_reset();
+  
+  begin_profiler_event("collect_messages");
   os.collect_messages(memory->window, input);
+  end_profiler_event("collect_messages");
   
   begin_profiler_event("input");
   os_Event event;
@@ -343,7 +351,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   
   
   
-  end_profiler_event("input");
   
   gl.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   gl.Clear(GL_COLOR_BUFFER_BIT);
@@ -365,9 +372,12 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       }
     }
   }
+  end_profiler_event("input");
   
   
   begin_profiler_event("render");
+  u64 stamp_start = __rdtsc();
+  
   for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
     Panel *panel = editor->panels + panel_index;
     
@@ -416,7 +426,23 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     renderer_end_render(gl, renderer);
   }
+  
+  
   end_profiler_event("render");
+  {
+    static u64 total = 0;
+    static u64 count = 0;
+    
+    u64 stamp_end = __rdtsc();
+    u64 dur = stamp_end - stamp_start;
+    total += dur;
+    count++;
+    
+    char buffer[128];
+    sprintf_s(buffer, 128, "%lld\n", total/count);
+    os.debug_pring(buffer);
+  }
+  
   
   end_profiler_event("loop");
   

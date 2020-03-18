@@ -57,6 +57,7 @@ typedef struct {
   void (*close_file)(os_File);
   void (*read_file)(os_File, void*, u64, u64);
   u64 (*get_file_size)(os_File);
+  void (*debug_pring)(char *);
   
   Global_Context_Info *context_info;
   Profiler_Event *profiler_events;

@@ -273,10 +273,16 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         i32 gap_start = get_gap_start(buffer);
         i32 gap_count = get_gap_count(buffer);
         
-        for (i32 char_index = 0;
-             char_index < gap_start; // last symbol is 0
-             char_index++) 
+        i32 added = 0;
+        for (i32 char_index_relative = 0;
+             char_index_relative < buffer->count - 1; // last symbol is 0
+             char_index_relative++) 
         {
+          if (char_index_relative == gap_start) {
+            added = gap_count;
+          }
+          i32 char_index = char_index_relative + added;
+          
           char first = buffer->data[char_index] - font->first_codepoint;
           if (first == '\n') {
             offset.x = rect.min.x;
@@ -301,7 +307,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
           m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
           
           
-          Syntax syntax = buffer->colors[char_index];
+          Syntax syntax = buffer->colors[char_index_relative];
           Quad_Instance inst = {
             .matrix = m,
             .texture_x = (u16)rect.min.x,
@@ -320,51 +326,6 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         }
         
         
-        for (i32 char_index = gap_start + gap_count;
-             char_index < buffer->count - 1 + gap_count; // last symbol is 0
-             char_index++) 
-        {
-          char first = buffer->data[char_index] - font->first_codepoint;
-          if (first == '\n') {
-            offset.x = rect.min.x;
-            offset.y -= font->line_spacing;
-            if (offset.y < -500) {
-              goto end;
-            }
-            continue;
-          }
-          
-          Rect2i rect = font->atlas.rects[first];
-          V2 origin = font->origins[first];
-          
-          u16 width = (u16)(rect.max.x - rect.min.x);
-          u16 height = (u16)(rect.max.y - rect.min.y);
-          
-          
-          M4 m = matrix;
-          m = m4_mul_m4(m, m4_translated(v3(offset.x + origin.x,
-                                            offset.y + origin.y, 
-                                            0)));
-          m = m4_mul_m4(m, m4_scaled(v3(width, height, 1)));
-          
-          
-          Syntax syntax = buffer->colors[char_index - gap_count];
-          Quad_Instance inst = {
-            .matrix = m,
-            .texture_x = (u16)rect.min.x,
-            .texture_y = (u16)rect.min.y,
-            .texture_w = width,
-            .texture_h = height,
-            .color = color_u32_to_opengl_u32(theme->colors[syntax]),
-          };
-          
-          sb_push(instances, inst);
-          
-          // token strings are guaranteed to have one additional char
-          // in the end for kerning
-          i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
-          offset.x += advance;
-        }
         end:
         end_profiler_event("render_buffer");
       } break;

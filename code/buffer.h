@@ -42,7 +42,7 @@ typedef struct {
   char exchange[MAX_EXCHANGE_COUNT];
   i32 exchange_count;
   
-  Syntax *colors;
+  i8 *colors;
 } Buffer;
 
 

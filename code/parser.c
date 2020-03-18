@@ -701,13 +701,13 @@ void parse_program(Parser *p) {
   end_profiler_event("parse");
 }
 
-Syntax *buffer_parse(Buffer *b) {
+i8 *buffer_parse(Buffer *b) {
   Parser parser = {
     .i = 0,
     .tokens = null,
     .buffer = b,
     .symbols = sb_new(Symbol, 32),
-    .colors = sb_new(Syntax, b->count),
+    .colors = sb_new(i8, b->count),
   };
   parser.tokens = buffer_tokenize(&parser, b);
   Parser *p = &parser;

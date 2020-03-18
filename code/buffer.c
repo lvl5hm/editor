@@ -106,11 +106,9 @@ void set_cursor(Buffer *b, i32 pos) {
 }
 
 void buffer_changed(Buffer *b) {
-#if 1
   if (b->colors) {
     sb_free(b->colors);
   }
-#endif
   b->colors = buffer_parse(b);
 }
 
