@@ -160,6 +160,16 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
       
       
+      os_File file = os.open_file(const_string("src/foo.c"));
+      u64 file_size = os.get_file_size(file);
+      char *file_memory = alloc_array(char, file_size);
+      os.read_file(file, file_memory, 0, file_size);
+      os.close_file(file);
+      
+      String str = make_string(file_memory, file_size + 1);
+      buffer_insert_string(buffer, str);
+      set_cursor(buffer, 0);
+      
       V2 ws = renderer->window_size;
       V2 bottom_left = v2(-0.5f, -0.5f);
       V2 panel_size = v2(0.5f, 1.0f);
@@ -182,7 +192,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
           .type = Panel_Type_BUFFER,
           .rect = rect2_min_size(v2(0, -0.5f), panel_size),
         };
-        sb_push(editor->panels, panel);
+        //sb_push(editor->panels, panel);
       }
     }
     
@@ -365,6 +375,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     }
   }
   
+  u64 stamp_start = __rdtsc();
+  
   for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
     Panel *panel = editor->panels + panel_index;
     
@@ -463,6 +475,19 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     renderer_end_render(gl, renderer);
   }
   
+  {
+    static u64 total = 0;
+    static u64 count = 0;
+    
+    u64 stamp_end = __rdtsc();
+    u64 dur = stamp_end - stamp_start;
+    total += dur;
+    count++;
+    
+    char buffer[128];
+    sprintf_s(buffer, 128, "%lld\n", total/count);
+    os.debug_pring(buffer);
+  }
   
   end_profiler_event("loop");
   

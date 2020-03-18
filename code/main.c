@@ -32,6 +32,7 @@ os_entry_point() {
     .close_file = os_close_file,
     .read_file = os_read_file,
     .get_file_size = os_get_file_size,
+    .debug_pring = OutputDebugStringA,
     
     .context_info = global_context_info,
     .profiler_event_capacity = profiler_event_capacity,
