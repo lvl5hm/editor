@@ -14,8 +14,6 @@ void init_renderer(gl_Funcs gl, Renderer *r, GLuint shader, Font *font, V2 windo
   gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
   gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
   
-  // disables texture multisampling
-  // GL_LINEAR to enable
   gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   
@@ -105,15 +103,15 @@ void renderer_begin_render(Renderer *r, Rect2 rect) {
 }
 
 void render_scale(Renderer *r, V3 scale) {
-  r->state.matrix = m4_mul_m4(r->state.matrix, m4_scaled(scale));
+  r->state.matrix = m4_unscale(r->state.matrix, scale);
 }
 
 void render_translate(Renderer *r, V3 p) {
-  r->state.matrix = m4_mul_m4(r->state.matrix, m4_translated(p));
+  r->state.matrix = m4_untranslate(r->state.matrix, p);
 }
 
 void render_rotate(Renderer *r, f32 angle) {
-  r->state.matrix = m4_mul_m4(r->state.matrix, m4_rotated(angle));
+  r->state.matrix = m4_unrotate(r->state.matrix, angle);
 }
 
 
@@ -129,7 +127,7 @@ f32 measure_string_width(Renderer *r, String s) {
 
 
 // strings drawn with this MUST have an extra char of padding AFTER count
-void draw_string(Renderer *r, String s, V2 p, V4 color) {
+void draw_string(Renderer *r, String s, V2 p, u32 color) {
   V3 pos = v2_to_v3(p, 0);
   render_translate(r, pos);
   
@@ -144,7 +142,7 @@ void draw_string(Renderer *r, String s, V2 p, V4 color) {
   render_translate(r, v3_negate(pos));
 }
 
-void draw_rect(Renderer *r, Rect2 rect, V4 color) {
+void draw_rect(Renderer *r, Rect2 rect, u32 color) {
   Render_Item item = {
     .type = Render_Type_RECT,
     .state = r->state,
@@ -154,7 +152,7 @@ void draw_rect(Renderer *r, Rect2 rect, V4 color) {
   sb_push(r->items, item);
 }
 
-void draw_rect_outline(Renderer *r, Rect2 rect, f32 thick, V4 color) {
+void draw_rect_outline(Renderer *r, Rect2 rect, f32 thick, u32 color) {
   V2 size = rect2_get_size(rect);
   
   draw_rect(r, rect2_min_size(rect.min, v2(size.x, thick)), color);
@@ -165,7 +163,7 @@ void draw_rect_outline(Renderer *r, Rect2 rect, f32 thick, V4 color) {
                               v2(thick, size.y)), color);
 }
 
-void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *theme, V2 scroll) {
+void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *theme, V2 *scroll) {
   Render_Item item = {
     .type = Render_Type_BUFFER,
     .state = r->state,
@@ -175,8 +173,29 @@ void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *t
   item.buffer.scroll = scroll;
   item.buffer.view = view;
   
-  draw_rect(r, rect, color_u32_to_v4(theme->colors[Syntax_BACKGROUND]));
+  draw_rect(r, rect, theme->colors[Syntax_BACKGROUND]);
   sb_push(r->items, item);
+}
+
+
+void queue_rect(Quad_Instance *instances, Rect2 rect, Renderer_State state) {
+  V2 size = rect2_get_size(rect);
+  M4 m = state.matrix;
+  m = m4_mul_m4(m, m4_translated(v3(rect.min.x,
+                                    rect.min.y, 
+                                    0)));
+  m = m4_mul_m4(m, m4_scaled(v3(size.x, size.y, 1)));
+  Rect2i sprite_rect = state.font->atlas.rects[state.font->atlas.count-1];
+  
+  Quad_Instance inst = {
+    .matrix = m,
+    .texture_x = (u16)sprite_rect.min.x,
+    .texture_y = (u16)sprite_rect.min.y,
+    .texture_w = 1,
+    .texture_h = 1,
+    .color = state.color,
+  };
+  sb_push(instances, inst);
 }
 
 void renderer_end_render(gl_Funcs gl, Renderer *r) {
@@ -219,7 +238,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
             .texture_y = (u16)rect.min.y,
             .texture_w = width,
             .texture_h = height,
-            .color = color_v4_to_opengl_u32(item->state.color),
+            .color = item->state.color,
           };
           
           sb_push(instances, inst);
@@ -232,29 +251,9 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
       } break;
       
       case Render_Type_RECT: {
-        Rect2 rect = item->rect.rect;
-        
-        V2 size = rect2_get_size(rect);
-        
-        M4 m = item->state.matrix;
-        m = m4_mul_m4(m, m4_translated(v3(rect.min.x,
-                                          rect.min.y, 
-                                          0)));
-        m = m4_mul_m4(m, m4_scaled(v3(size.x, size.y, 1)));
-        
-        
-        
-        Rect2i sprite_rect = r->state.font->atlas.rects[r->state.font->atlas.count-1];
-        
-        Quad_Instance inst = {
-          .matrix = m,
-          .texture_x = (u16)sprite_rect.min.x,
-          .texture_y = (u16)sprite_rect.min.y,
-          .texture_w = 1,
-          .texture_h = 1,
-          .color = color_v4_to_opengl_u32(item->state.color),
-        };
-        sb_push(instances, inst);
+        queue_rect(instances,
+                   item->rect.rect,
+                   item->state);
       } break;
       
       case Render_Type_BUFFER: {
@@ -266,12 +265,21 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         Buffer_View *view = item->buffer.view;
         Buffer *buffer = view->buffer;
         Color_Theme *theme = item->buffer.theme;
-        V2 scroll = item->buffer.scroll;
-        Rect2 rect = item->buffer.rect;
+        V2 *scroll = item->buffer.scroll;
+        Rect2 buffer_rect = item->buffer.rect;
         
-        V2 offset = v2(rect.min.x, rect.max.y);
+        V2 offset = v2(buffer_rect.min.x,
+                       buffer_rect.max.y - font->line_height + font->line_spacing + scroll->y*font->line_spacing);
         i32 gap_start = get_gap_start(buffer);
         i32 gap_count = get_gap_count(buffer);
+        
+        f32 PADDING = 4.0f;
+        
+        f32 lines_on_screen = r->window_size.y/font->line_height;
+        f32 border_top = scroll->y + PADDING;
+        f32 border_bottom = scroll->y + lines_on_screen - PADDING;
+        
+        i32 line_index = 0;
         
         i32 added = 0;
         for (i32 char_index_relative = 0;
@@ -282,14 +290,78 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
             added = gap_count;
           }
           i32 char_index = char_index_relative + added;
-          
           char first = buffer->data[char_index] - font->first_codepoint;
+          
+          u32 char_color = theme->colors[buffer->colors[char_index_relative]];
+          
+          i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
+          
+          if (char_index_relative == buffer->cursor) {
+            f32 cursor_y = offset.y-font->line_spacing - font->descent;
+            V2 cursor_min = v2(offset.x,
+                               cursor_y);
+            V2 cursor_size = v2((f32)advance, font->line_height);
+            Rect2 cursor_rect = 
+              rect2_min_size(cursor_min, cursor_size);
+            
+            u32 cursor_color = theme->colors[Syntax_CURSOR];
+            queue_rect(instances, cursor_rect,
+                       (Renderer_State){
+                       .matrix = matrix,
+                       .font = font,
+                       .color = cursor_color,
+                       });
+            char_color = color_invert(cursor_color);
+            
+            f32 target = 0;
+            if (line_index > border_bottom) {
+              target = line_index - border_bottom;
+            } else if (line_index < border_top ) {
+              target = line_index - border_top;
+            }
+            scroll->y += target/7;
+            
+            if (scroll->y < 0) {
+              scroll->y = 0;
+            }
+          } else if (char_index_relative == buffer->mark) {
+            V2 cursor_min = v2(offset.x,
+                               offset.y-font->line_spacing - font->descent);
+            V2 cursor_size = v2((f32)advance, font->line_height);
+            Rect2 cursor_rect = 
+              rect2_min_size(cursor_min, cursor_size);
+            
+            u32 cursor_color = theme->colors[Syntax_CURSOR];
+            
+            Renderer_State state = {
+              .matrix = matrix,
+              .font = font,
+              .color = cursor_color,
+            };
+            
+            f32 thick = 1.0f;
+            V2 size = rect2_get_size(cursor_rect);
+            
+            queue_rect(instances,
+                       rect2_min_size(cursor_rect.min, v2(size.x, thick)), state);
+            queue_rect(instances,
+                       rect2_min_size(cursor_rect.min, v2(thick, size.y)), state);
+            queue_rect(instances, rect2_min_size(v2(cursor_rect.min.x, cursor_rect.max.y-thick), 
+                                                 v2(size.x, thick)), state);
+            queue_rect(instances, rect2_min_size(v2(cursor_rect.max.x-thick, cursor_rect.min.y),
+                                                 v2(thick, size.y)), state);
+          }
           if (first == '\n') {
-            offset.x = rect.min.x;
+            offset.x = buffer_rect.min.x;
             offset.y -= font->line_spacing;
-            if (offset.y < -500) {
+            line_index++;
+            if (offset.y < -r->window_size.y*0.5f) {
               goto end;
             }
+            continue;
+          }
+          
+          if (line_index < scroll->y) {
             continue;
           }
           
@@ -299,28 +371,20 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
           u16 width = (u16)(rect.max.x - rect.min.x);
           u16 height = (u16)(rect.max.y - rect.min.y);
           
-          
           M4 m = matrix;
-          m.e30 += (offset.x + origin.x)*m.e00;
-          m.e31 += (offset.y + origin.y)*m.e11;
-          m.e00 *= width;
-          m.e11 *= height;
-          
-          
-          i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
-          offset.x += advance;
-          
-          Syntax syntax = buffer->colors[char_index_relative];
+          m = m4_untranslate(m, v2_to_v3(v2_add(offset, origin), 0));
+          m = m4_unscale(m, v3(width, height, 1));
           Quad_Instance inst = {
             .matrix = m,
             .texture_x = (u16)rect.min.x,
             .texture_y = (u16)rect.min.y,
             .texture_w = width,
             .texture_h = height,
-            .color = theme->colors[syntax],
+            .color = char_color,
           };
           
           sb_push(instances, inst);
+          offset.x += advance;
         }
         
         

@@ -13,7 +13,7 @@ typedef struct Quad_Instance {
 
 typedef struct {
   Font *font;
-  V4 color;
+  u32 color;
   M4 matrix;
 } Renderer_State;
 
@@ -39,7 +39,7 @@ typedef struct {
       Rect2 rect;
       Buffer_View *view;
       Color_Theme *theme;
-      V2 scroll;
+      V2 *scroll;
     } buffer;
   };
   Renderer_State state;

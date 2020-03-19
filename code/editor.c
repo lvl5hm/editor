@@ -137,8 +137,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     
-    state->font = os.load_font(const_string("fonts/ubuntu_mono.ttf"), 
-                               const_string("Ubuntu Mono"),
+    state->font = os.load_font(const_string("fonts/roboto.ttf"), 
+                               const_string("Roboto"),
                                24);
     
     V2 window_size = os.get_window_size(memory->window);
@@ -296,13 +296,9 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     monokai.colors[Syntax_ARG] = 0xFFFD911F;
     monokai.colors[Syntax_OPERATOR] = 0xFFF92672;
     monokai.colors[Syntax_KEYWORD] = monokai.colors[Syntax_OPERATOR];
-    monokai.colors[Syntax_CURSOR] = 0xFF00FF00;
+    monokai.colors[Syntax_CURSOR] = 0xFFFFFFFF;
     monokai.colors[Syntax_NUMBER] = monokai.colors[Syntax_MACRO];
     monokai.colors[Syntax_STRING] = 0xFFE6DB74;
-    
-    for (i32 i = 0; i < Syntax_count; i++) {
-      monokai.colors[i] = color_u32_to_opengl_u32(monokai.colors[i]);
-    }
     editor->settings.theme = monokai;
     
     glEnable(GL_SCISSOR_TEST);
@@ -388,8 +384,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     Rect2 border_rect = rect2_min_max(v2_hadamard(panel->rect.min, ws),
                                       v2_hadamard(panel->rect.max, ws));
     renderer_begin_render(renderer, border_rect);
-    
-    f32 border_thickness = 4;
+    f32 border_thickness = 3;
     
     Rect2 rect = rect2_min_max(v2(border_rect.min.x+4, border_rect.min.y+4),
                                v2(border_rect.max.x+4, border_rect.max.y+4));
@@ -410,7 +405,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
             color = theme.colors[Syntax_FUNCTION];
           }
           
-          draw_string(renderer, file_name, pos, color_u32_to_v4(color));
+          draw_string(renderer, file_name, pos, color);
           pos.y -= font->line_spacing;
         }
       } break;
@@ -419,19 +414,19 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         Buffer_View *buffer_view = &panel->buffer_view;
         Buffer *buffer = buffer_view->buffer;
         
-        
-        draw_buffer_view(renderer, rect, buffer_view, &editor->settings.theme, panel->scroll);
+        draw_buffer_view(renderer, rect, buffer_view, &editor->settings.theme, &(editor->panels + panel_index)->scroll);
       } break;
     }
     
     draw_rect_outline(renderer, border_rect, border_thickness, 
-                      color_u32_to_v4(editor->settings.theme.colors[Syntax_DEFAULT]));
+                      editor->settings.theme.colors[Syntax_DEFAULT]);
     
     renderer_end_render(gl, renderer);
   }
   
   
   end_profiler_event("render");
+#if 1
   {
     static u64 total = 0;
     static u64 count = 0;
@@ -445,6 +440,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     sprintf_s(buffer, 128, "%lld\n", total/count);
     os.debug_pring(buffer);
   }
+#endif
   
   
   end_profiler_event("loop");

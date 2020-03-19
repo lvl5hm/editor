@@ -14,7 +14,7 @@ void main() {
   mat4x4 u_model = transpose(model);
   gl_Position = u_model*vec4(position, 0.0f, 1.0f);
   
-  fr_color = color/255.0f;
+  fr_color = vec4(color.z, color.y, color.x, color.w)/255.0f;
   tex_coord = tex.xy + position.xy*tex.zw;
 }
 
