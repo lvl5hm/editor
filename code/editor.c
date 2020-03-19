@@ -1,6 +1,5 @@
 #include "editor.h"
-#include "buffer.c"
-
+#include "renderer.c"
 
 Keybind *get_keybind(Editor *editor, os_Keycode keycode, 
                      bool shift, bool ctrl, bool alt) 
@@ -105,7 +104,7 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       os.read_file(file, file_memory, 0, file_size);
       os.close_file(file);
       
-      String str = make_string(file_memory, file_size + 1);
+      String str = make_string(file_memory, file_size);
       Buffer buffer = make_empty_buffer();
       buffer_insert_string(&buffer, str);
       set_cursor(&buffer, 0);
@@ -123,10 +122,6 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   App_State *state = (App_State *)memory->data;
   
-  
-  profiler_event_count = 0;
-  begin_profiler_event("loop");
-  
   if(memory->reloaded) {
     global_context_info = os.context_info;
     profiler_events = os.profiler_events;
@@ -142,8 +137,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     
-    state->font = os.load_font(const_string("fonts/ubuntu_mono.ttf"), 
-                               const_string("Ubuntu Mono"),
+    state->font = os.load_font(const_string("fonts/roboto.ttf"), 
+                               const_string("Roboto"),
                                24);
     
     V2 window_size = os.get_window_size(memory->window);
@@ -159,6 +154,15 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       sb_push(editor->buffers, make_empty_buffer());
       Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
       
+      os_File file = os.open_file(const_string("src/foo.c"));
+      u64 file_size = os.get_file_size(file);
+      char *file_memory = alloc_array(char, file_size);
+      os.read_file(file, file_memory, 0, file_size);
+      os.close_file(file);
+      
+      String str = make_string(file_memory, file_size);
+      buffer_insert_string(buffer, str);
+      set_cursor(buffer, 0);
       
       os_File file = os.open_file(const_string("src/foo.c"));
       u64 file_size = os.get_file_size(file);
@@ -302,11 +306,10 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     monokai.colors[Syntax_ARG] = 0xFFFD911F;
     monokai.colors[Syntax_OPERATOR] = 0xFFF92672;
     monokai.colors[Syntax_KEYWORD] = monokai.colors[Syntax_OPERATOR];
-    monokai.colors[Syntax_CURSOR] = 0xFF00FF00;
+    monokai.colors[Syntax_CURSOR] = 0xFFFFFFFF;
     monokai.colors[Syntax_NUMBER] = monokai.colors[Syntax_MACRO];
     monokai.colors[Syntax_STRING] = 0xFFE6DB74;
     editor->settings.theme = monokai;
-    
     
     glEnable(GL_SCISSOR_TEST);
   }
@@ -315,8 +318,13 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   Font *font = renderer->state.font;
   gl_Funcs gl = os.gl;
   
+  profiler_event_count = 0;
+  begin_profiler_event("loop");
   scratch_reset();
+  
+  begin_profiler_event("collect_messages");
   os.collect_messages(memory->window, input);
+  end_profiler_event("collect_messages");
   
   begin_profiler_event("input");
   os_Event event;
@@ -352,7 +360,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   
   
   
-  end_profiler_event("input");
   
   gl.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   gl.Clear(GL_COLOR_BUFFER_BIT);
@@ -374,6 +381,11 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       }
     }
   }
+  end_profiler_event("input");
+  
+  
+  begin_profiler_event("render");
+  u64 stamp_start = __rdtsc();
   
   u64 stamp_start = __rdtsc();
   
@@ -384,8 +396,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     Rect2 border_rect = rect2_min_max(v2_hadamard(panel->rect.min, ws),
                                       v2_hadamard(panel->rect.max, ws));
     renderer_begin_render(renderer, border_rect);
-    
-    f32 border_thickness = 4;
+    f32 border_thickness = 3;
     
     Rect2 rect = rect2_min_max(v2(border_rect.min.x+4, border_rect.min.y+4),
                                v2(border_rect.max.x+4, border_rect.max.y+4));
@@ -406,7 +417,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
             color = theme.colors[Syntax_FUNCTION];
           }
           
-          draw_string(renderer, file_name, pos, color_u32_to_v4(color));
+          draw_string(renderer, file_name, pos, color);
           pos.y -= font->line_spacing;
         }
       } break;
@@ -415,62 +426,12 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         Buffer_View *buffer_view = &panel->buffer_view;
         Buffer *buffer = buffer_view->buffer;
         
-        V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
-        f32 cursor_line = -cursor_p.y / font->line_spacing;
-        
-        f32 border_top = panel->scroll.y + PADDING;
-        
-        
-        Font *font = renderer->state.font;
-        i8 line_spacing = font->line_spacing;
-        
-        V2 rect_size = rect2_get_size(rect);
-        i32 height_lines = (i32)(rect_size.y / line_spacing);
-        f32 border_bottom = panel->scroll.y + height_lines - PADDING;
-        
-        f32 want_scroll_y = 0;
-        if (cursor_line > border_bottom) {
-          want_scroll_y = cursor_line - border_bottom;
-        } else if (cursor_line < border_top && panel->scroll.y > 0) {
-          want_scroll_y = cursor_line - border_top;
-        }
-        panel->scroll.y += want_scroll_y*0.25f;
-        
-        f32 header_height = (f32)line_spacing*1.5f;
-        
-        draw_rect(renderer, rect, color_u32_to_v4(theme.colors[Syntax_BACKGROUND]));
-        {
-          // draw cursor and marker
-          V2 top_left = v2(rect.min.x, rect.max.y + panel->scroll.y*line_spacing - header_height);
-          
-          i8 cursor_width = font_get_advance(font, 
-                                             get_buffer_char(buffer, buffer->cursor),
-                                             get_buffer_char(buffer, buffer->cursor+1));
-          
-          V2 cursor_p = get_screen_position_in_buffer(font, buffer, buffer->cursor);
-          
-          draw_rect(renderer, 
-                    rect2_min_size(v2_add(top_left, cursor_p), v2(cursor_width, line_spacing)), 
-                    v4(0, 1, 0, 1));
-          
-          
-          i8 mark_width = font_get_advance(font, 
-                                           get_buffer_char(buffer, buffer->mark),
-                                           get_buffer_char(buffer, buffer->mark+1));
-          V2 mark_p = get_screen_position_in_buffer(font, buffer, buffer->mark);
-          draw_rect(renderer,
-                    rect2_min_size(v2_add(top_left, mark_p), 
-                                   v2(mark_width, line_spacing)),
-                    v4(0, 1, 0, 0.4f));
-        }
-        
-        
-        buffer_draw(renderer, buffer, rect, editor->settings.theme, panel->scroll);
+        draw_buffer_view(renderer, rect, buffer_view, &editor->settings.theme, &(editor->panels + panel_index)->scroll);
       } break;
     }
     
     draw_rect_outline(renderer, border_rect, border_thickness, 
-                      color_u32_to_v4(editor->settings.theme.colors[Syntax_DEFAULT]));
+                      editor->settings.theme.colors[Syntax_DEFAULT]);
     
     renderer_end_render(gl, renderer);
   }
@@ -488,6 +449,24 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     sprintf_s(buffer, 128, "%lld\n", total/count);
     os.debug_pring(buffer);
   }
+  
+  end_profiler_event("render");
+#if 1
+  {
+    static u64 total = 0;
+    static u64 count = 0;
+    
+    u64 stamp_end = __rdtsc();
+    u64 dur = stamp_end - stamp_start;
+    total += dur;
+    count++;
+    
+    char buffer[128];
+    sprintf_s(buffer, 128, "%lld\n", total/count);
+    os.debug_pring(buffer);
+  }
+#endif
+  
   
   end_profiler_event("loop");
   

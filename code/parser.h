@@ -99,9 +99,6 @@ typedef enum {
   T_STRING,
   T_CHAR,
   T_COMMENT,
-  
-  T_SPACE,
-  T_NEWLINE,
 } Token_Type;
 
 #define arr_string(chars) {chars, array_count(chars)-1}
@@ -190,31 +187,22 @@ String Token_Kind_To_String[] = {
 };
 
 
-typedef enum {
-  A_NONE,
-  A_TYPE,
-  A_ARGUMENT,
-  A_FUNCTION,
-  A_MACRO,
-  A_ENUM_MEMBER,
-} Ast_Type;
-
 struct Token {
   Token_Type kind;
-  Ast_Type ast_kind;
   i32 start;
-  i32 count;
+  i32 end;
 };
-
 
 typedef struct {
   String name;
-  Ast_Type kind;
+  Syntax kind;
 } Symbol;
 
 typedef struct {
   i32 i;
   Token *tokens;
+  i8 *colors;
+  
   Buffer *buffer;
   Symbol *symbols;
 } Parser;
