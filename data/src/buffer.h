@@ -3,6 +3,8 @@
 #include "font.h"
 #include <lvl5_string.h>
 
+#define MAX_EXCHANGE_COUNT 1024
+
 typedef struct Token Token;
 
 
@@ -25,12 +27,6 @@ typedef enum {
 } Syntax;
 
 
-#define MAX_EXCHANGE_COUNT 1024
-typedef struct {
-  char data[MAX_EXCHANGE_COUNT];
-  i32 count;
-} Exchange;
-
 typedef struct {
   String file_name;
   
@@ -41,6 +37,10 @@ typedef struct {
   i32 cursor;
   i32 mark;
   i32 preferred_col_pos;
+  
+  // TODO(lvl5): exchange shouldn't be in the buffer
+  char exchange[MAX_EXCHANGE_COUNT];
+  i32 exchange_count;
   
   i8 *colors;
 } Buffer;

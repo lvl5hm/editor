@@ -2,10 +2,28 @@
 
 
 
+// token strings always include one additional char for kerning
 String token_to_string(Buffer *b, Token *t) {
-  String result = buffer_part_to_string(b, t->start, t->end);
+  String result = buffer_part_to_string(b, t->start, t->end + 1);
+  result.count--;
   return result;
 }
+
+#if 0
+Token_Type get_keyword_kind(String str) {
+  i32 result = 0;
+  for (i32 i = T_KEYWORD_FIRST; i <= T_KEYWORD_LAST; i++) {
+    String keyword_string = Token_Kind_To_String[i];
+    if (string_compare(keyword_string, str)) {
+      result = i;
+      break;
+    }
+  }
+  return result;
+}
+
+#endif
+
 
 b32 is_digit(char c) {
   b32 result = c >= '0' && c <= '9';
@@ -27,7 +45,7 @@ b32 is_whitespace(char c) {
 
 void set_color(Parser *p, Token *t, Syntax color) {
   for (i32 i = t->start; i < t->end; i++) {
-    p->buffer->colors[i] = color;
+    p->colors[i] = color;
   }
 }
 
@@ -70,7 +88,7 @@ Token *buffer_tokenize(Parser *p, Buffer *b) {
     next(n); \
     token_start += n; \
     for (i32 i = token_start-n; i < token_start; i++) { \
-      p->buffer->colors[i] = syntax; \
+      p->colors[i] = syntax; \
     } \
   }
 #define eat() { \
@@ -363,9 +381,7 @@ bool accept_token(Parser *p, Token_Type kind) {
 
 
 void add_symbol(Parser *p, String name, Syntax kind) {
-  Symbol s = (Symbol){ .kind = kind };
-  s.name = make_string(alloc_array(char, name.count), name.count);
-  copy_memory_slow(s.name.data, name.data, name.count);
+  Symbol s = (Symbol){ .name = name, .kind = kind };
   sb_push(p->symbols, s);
 }
 
@@ -628,17 +644,26 @@ void parse_program(Parser *p) {
   end_profiler_event("parse");
 }
 
-i8 *buffer_parse(Buffer *b, Parser *p) {
-  if (b->colors) {
-    sb_free(b->colors);
-  }
-  b->colors = sb_new(i8, b->count);
-  p->buffer = b;
-  p->i = 0;
-  p->tokens = buffer_tokenize(p, b);
+i8 *buffer_parse(Buffer *b) {
+  Parser parser = {
+    .i = 0,
+    .tokens = null,
+    .buffer = b,
+    .symbols = sb_new(Symbol, 32),
+    .colors = sb_new(i8, b->count),
+  };
+  parser.tokens = buffer_tokenize(&parser, b);
+  Parser *p = &parser;
+  add_symbol(p, const_string("char"), Syntax_TYPE);
+  add_symbol(p, const_string("void"), Syntax_TYPE);
+  add_symbol(p, const_string("short"), Syntax_TYPE);
+  add_symbol(p, const_string("int"), Syntax_TYPE);
+  add_symbol(p, const_string("long"), Syntax_TYPE);
+  add_symbol(p, const_string("float"), Syntax_TYPE);
+  add_symbol(p, const_string("double"), Syntax_TYPE);
   
-  parse_program(p);
+  parse_program(&parser);
   
   
-  return p->buffer->colors;
+  return parser.colors;
 }

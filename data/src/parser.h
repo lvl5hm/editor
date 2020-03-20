@@ -200,6 +200,7 @@ typedef struct {
 typedef struct {
   i32 i;
   Token *tokens;
+  i8 *colors;
   
   Buffer *buffer;
   Symbol *symbols;

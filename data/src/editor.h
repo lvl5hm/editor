@@ -1,7 +1,6 @@
 #ifndef EDITOR_H
 #include "buffer.h"
 #include "common.h"
-#include "parser.h"
 
 typedef enum {
   Command_NONE,
@@ -13,10 +12,6 @@ typedef enum {
   Command_MOVE_CURSOR_RIGHT,
   Command_MOVE_CURSOR_UP,
   Command_MOVE_CURSOR_DOWN,
-  Command_MOVE_CURSOR_LINE_START,
-  Command_MOVE_CURSOR_LINE_END,
-  Command_MOVE_CURSOR_WORD_START,
-  Command_MOVE_CURSOR_WORD_END,
   Command_REMOVE_BACKWARD,
   Command_REMOVE_FORWARD,
   Command_NEWLINE,
@@ -91,8 +86,6 @@ typedef struct {
   
   Lister current_dir_files;
   Settings settings;
-  Exchange exchange;
-  Parser parser;
 } Editor;
 
 #include "renderer.h"

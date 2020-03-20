@@ -42,19 +42,15 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       buffer->mark = buffer->cursor;
     } break;
     case Command_COPY: {
-      buffer_copy(buffer, &editor->exchange);
+      buffer_copy(buffer);
     } break;
     case Command_PASTE: {
-      buffer_paste(buffer, &editor->exchange, &editor->parser);
+      buffer_paste(buffer);
     } break;
     case Command_CUT: {
-      buffer_cut(buffer, &editor->exchange, &editor->parser);
+      buffer_cut(buffer);
     } break;
     
-    case Command_MOVE_CURSOR_WORD_START:
-    case Command_MOVE_CURSOR_WORD_END:
-    case Command_MOVE_CURSOR_LINE_END:
-    case Command_MOVE_CURSOR_LINE_START:
     case Command_MOVE_CURSOR_RIGHT:
     case Command_MOVE_CURSOR_UP:
     case Command_MOVE_CURSOR_DOWN:
@@ -66,27 +62,26 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
     case Command_LISTER_MOVE_UP: {
       Lister *lister = &editor->current_dir_files;
       
-      i32 count = (i32)sb_count(lister->items);
+      i32 add = 0;
       if (command == Command_LISTER_MOVE_DOWN) {
-        lister->index++;
-        if (lister->index >= count) lister->index = 0;
+        add = 1;
       } else if (command == Command_LISTER_MOVE_UP) {
-        lister->index--;
-        if (lister->index < 0) lister->index = count-1;
+        add = -1;
       }
+      lister->index = (lister->index + add) % sb_count(lister->items);
     } break;
     
     case Command_REMOVE_BACKWARD: {
-      buffer_remove_backward(buffer, 1, &editor->parser);
+      buffer_remove_backward(buffer, 1);
     } break;
     case Command_REMOVE_FORWARD: {
-      buffer_remove_forward(buffer, 1, &editor->parser);
+      buffer_remove_forward(buffer, 1);
     } break;
     case Command_NEWLINE: {
-      buffer_newline(buffer, &editor->parser);
+      buffer_newline(buffer);
     } break;
     case Command_TAB: {
-      buffer_indent(buffer, &editor->parser);
+      buffer_indent(buffer);
     } break;
     case Command_OPEN_FILE_DIALOG: {
       panel->type = Panel_Type_FILE_DIALOG_OPEN;
@@ -110,8 +105,8 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       os.close_file(file);
       
       String str = make_string(file_memory, file_size);
-      Buffer buffer = make_empty_buffer(&editor->parser);
-      buffer_insert_string(&buffer, str, &editor->parser);
+      Buffer buffer = make_empty_buffer();
+      buffer_insert_string(&buffer, str);
       set_cursor(&buffer, 0);
       sb_push(editor->buffers, buffer);
       Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
@@ -155,22 +150,19 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     {
       editor->buffers = sb_new(Buffer, 16);
       editor->panels = sb_new(Panel, 16);
-      editor->parser = (Parser){
-        .i = 0,
-        .tokens = null,
-        .symbols = sb_new(Symbol, 256),
-      };
-      add_symbol(&editor->parser, const_string("char"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("void"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("short"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("int"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("long"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("float"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("double"), Syntax_TYPE);
       
-      sb_push(editor->buffers, make_empty_buffer(&editor->parser));
+      sb_push(editor->buffers, make_empty_buffer());
       Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
       
+      os_File file = os.open_file(const_string("src/foo.c"));
+      u64 file_size = os.get_file_size(file);
+      char *file_memory = alloc_array(char, file_size);
+      os.read_file(file, file_memory, 0, file_size);
+      os.close_file(file);
+      
+      String str = make_string(file_memory, file_size);
+      buffer_insert_string(buffer, str);
+      set_cursor(buffer, 0);
       
       V2 ws = renderer->window_size;
       V2 bottom_left = v2(-0.5f, -0.5f);
@@ -248,16 +240,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                        .views = Panel_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_DOWN,
                        .keycode = os_Keycode_ARROW_DOWN,
-                       }));
-    sb_push(keybinds, ((Keybind){
-                       .views = Panel_Type_BUFFER,
-                       .command = Command_MOVE_CURSOR_LINE_START,
-                       .keycode = os_Keycode_HOME,
-                       }));
-    sb_push(keybinds, ((Keybind){
-                       .views = Panel_Type_BUFFER,
-                       .command = Command_MOVE_CURSOR_LINE_END,
-                       .keycode = os_Keycode_END,
                        }));
     sb_push(keybinds, ((Keybind){
                        .views = Panel_Type_BUFFER,
@@ -385,7 +367,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       if (!input->ctrl && !input->alt) {
         if (input->char_count > 0) {
           String str = make_string(input->chars, input->char_count);
-          buffer_input_string(active_panel->buffer_view.buffer, str, &editor->parser);
+          buffer_input_string(active_panel->buffer_view.buffer, str);
         }
       }
     }
@@ -413,7 +395,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         Lister *lister = &editor->current_dir_files;
         u32 file_count = sb_count(lister->items);
         
-        V2 pos = v2(rect.min.x, rect.max.y);
+        V2 pos = top_left;
         for (u32 i = 0; i < file_count; i++) {
           String file_name = lister->items[i];
           

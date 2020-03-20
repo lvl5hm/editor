@@ -105,14 +105,17 @@ void set_cursor(Buffer *b, i32 pos) {
   }
 }
 
-void buffer_changed(Buffer *b, Parser *p) {
-  buffer_parse(b, p);
+void buffer_changed(Buffer *b) {
+  if (b->colors) {
+    sb_free(b->colors);
+  }
+  b->colors = buffer_parse(b);
 }
 
 
 #define BUFFER_INCREMENT_SIZE 1024
 
-void buffer_insert_string(Buffer *b, String str, Parser *parser) {
+void buffer_insert_string(Buffer *b, String str) {
   if (b->count + (i32)str.count > b->capacity) {
     char *old_data = b->data;
     i32 old_gap_start = get_gap_start(b);
@@ -125,8 +128,7 @@ void buffer_insert_string(Buffer *b, String str, Parser *parser) {
     while (b->count + (i32)str.count > b->capacity) {
       b->capacity = b->capacity*2;
     }
-    b->data = alloc_array(char, b->capacity + 1);
-    b->data[b->capacity] = '\0';
+    b->data = alloc_array(char, b->capacity);
     i32 gap_start = get_gap_start(b);
     i32 gap_count = get_gap_count(b);
     
@@ -152,40 +154,41 @@ void buffer_insert_string(Buffer *b, String str, Parser *parser) {
   b->cursor += (i32)str.count;
   b->count += (i32)str.count;
   
-  buffer_changed(b, parser);
+  buffer_changed(b);
 }
 
 
-Buffer make_empty_buffer(Parser *parser) {
+Buffer make_empty_buffer() {
   Buffer b = {0};
-  b.capacity = 0;
+  b.capacity = BUFFER_INCREMENT_SIZE;
+  b.data = alloc_array(char, b.capacity);
   b.file_name = const_string("scratch");
-  buffer_insert_string(&b, const_string("\0"), parser);
+  buffer_insert_string(&b, const_string("\0"));
   set_cursor(&b, 0);
   return b;
 }
 
-void buffer_remove_backward(Buffer *b, i32 count, Parser *p) {
-  if (b->cursor - count >= 0) {
-    if (b->mark >= b->cursor) {
-      b->mark -= count;
-    }
-    b->cursor -= count;
-    b->count -= count;
-    
-    buffer_changed(b, p);
+void buffer_remove_backward(Buffer *b, i32 count) {
+  assert(b->cursor - count >= 0);
+  
+  if (b->mark >= b->cursor) {
+    b->mark -= count;
   }
+  b->cursor -= count;
+  b->count -= count;
+  
+  buffer_changed(b);
 }
 
-void buffer_remove_forward(Buffer *b, i32 count, Parser *p) {
-  if (b->cursor < b->count - 1) {
-    if (b->mark > b->cursor) {
-      b->mark -= count;
-    }
-    b->count -= count;
-    
-    buffer_changed(b, p);
+void buffer_remove_forward(Buffer *b, i32 count) {
+  assert(b->cursor < b->count - 1);
+  
+  if (b->mark > b->cursor) {
+    b->mark -= count;
   }
+  b->count -= count;
+  
+  buffer_changed(b);
 }
 
 f32 get_pixel_position_in_line(Font *font, Buffer *b, i32 pos) {
@@ -227,7 +230,7 @@ b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
       
       i32 want = min(line_end + 1, b->count - 1);
       f32 want_pixel = 0;
-      while (want < b->count-1 && get_buffer_char(b, want) != '\n') {
+      while (get_buffer_char(b, want) != '\n') {
         i8 advance = font_get_advance(font, 
                                       get_buffer_char(b, want), 
                                       get_buffer_char(b, want+1));
@@ -273,21 +276,6 @@ b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
       cursor = want;
     } break;
     
-    case Command_MOVE_CURSOR_LINE_END: {
-      i32 line_end = seek_line_end(b, cursor);
-      cursor = line_end;
-      b->preferred_col_pos = cursor;
-    } break;
-    
-    case Command_MOVE_CURSOR_LINE_START: {
-      i32 line_start = seek_line_start(b, cursor);
-      while (get_buffer_char(b, line_start) == ' ') {
-        line_start++;
-      }
-      cursor = line_start;
-      b->preferred_col_pos = cursor;
-    } break;
-    
     default: assert(false);
   }
   set_cursor(b, cursor);
@@ -313,23 +301,23 @@ String text_buffer_to_string(Buffer *buffer) {
   return result;
 }
 
-void buffer_copy(Buffer *buffer, Exchange *exchange) {
+void buffer_copy(Buffer *buffer) {
   i32 start = min(buffer->cursor, buffer->mark);
   i32 end = max(buffer->cursor, buffer->mark);
-  exchange->count = end - start;
-  assert(exchange->count <= MAX_EXCHANGE_COUNT);
-  for (i32 i = 0; i < exchange->count; i++) {
-    exchange->data[i] = get_buffer_char(buffer, start+i);
+  buffer->exchange_count = end - start;
+  assert(buffer->exchange_count <= MAX_EXCHANGE_COUNT);
+  for (i32 i = 0; i < buffer->exchange_count; i++) {
+    buffer->exchange[i] = get_buffer_char(buffer, start+i);
   }
 }
 
-void buffer_paste(Buffer *buffer, Exchange *exchange, Parser *p) {
-  String str = make_string(exchange->data, exchange->count);
-  buffer_insert_string(buffer, str, p);
+void buffer_paste(Buffer *buffer) {
+  String str = make_string(buffer->exchange, buffer->exchange_count);
+  buffer_insert_string(buffer, str);
 }
 
-void buffer_cut(Buffer *buffer, Exchange *exchange, Parser *p) {
-  buffer_copy(buffer, exchange);
+void buffer_cut(Buffer *buffer) {
+  buffer_copy(buffer);
   i32 count = buffer->cursor - buffer->mark;
   if (buffer->cursor < buffer->mark) {
     i32 tmp = buffer->cursor;
@@ -337,11 +325,11 @@ void buffer_cut(Buffer *buffer, Exchange *exchange, Parser *p) {
     buffer->mark = tmp;
     count *= -1;
   }
-  buffer_remove_backward(buffer, count, p);
+  buffer_remove_backward(buffer, count);
 }
 
 
-void buffer_newline(Buffer *buffer, Parser *p) {
+void buffer_newline(Buffer *buffer) {
   i32 line_start = seek_line_start(buffer, buffer->cursor);
   String indent_str = { .count = 1 };
   while (get_buffer_char(buffer, 
@@ -365,19 +353,19 @@ void buffer_newline(Buffer *buffer, Parser *p) {
     indent_str.data[i] = ' ';
   }
   
-  buffer_insert_string(buffer, indent_str, p);
+  buffer_insert_string(buffer, indent_str);
 }
 
-void buffer_indent(Buffer *buffer, Parser *p) {
+void buffer_indent(Buffer *buffer) {
   String indent_str = make_string(scratch_push_array(char, 2), 2);
   for (i32 i = 0; i < (i32)indent_str.count; i++) {
     indent_str.data[i] = ' ';
   }
   
-  buffer_insert_string(buffer, indent_str, p);
+  buffer_insert_string(buffer, indent_str);
 }
 
-void buffer_input_string(Buffer *buffer, String str, Parser *p) {
+void buffer_input_string(Buffer *buffer, String str) {
   if (str.data[0] == '}') {
     i32 start = seek_line_start(buffer, buffer->cursor);
     bool only_indent = true;
@@ -388,13 +376,13 @@ void buffer_input_string(Buffer *buffer, String str, Parser *p) {
       }
     }
     if (only_indent && buffer->cursor >= 2) {
-      buffer_remove_backward(buffer, 2, p);
+      buffer_remove_backward(buffer, 2);
     }
   }
   if (str.data[0] != '\t' && 
       str.data[0] != '\b' && 
       str.data[0] != '\r') {
-    buffer_insert_string(buffer, str, p);
+    buffer_insert_string(buffer, str);
   }
 }
 
