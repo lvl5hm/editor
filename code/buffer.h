@@ -28,8 +28,6 @@ typedef struct Buffer {
     Arena arena;
     String *dependencies;
     Syntax *colors;
-    Symbol *symbols;
-    Symbol **visible_symbols;
     Token *tokens;
   } cache;
 } Buffer;
