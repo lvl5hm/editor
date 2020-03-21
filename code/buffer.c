@@ -46,6 +46,7 @@ V2 get_buffer_xy(Buffer *b, i32 pos) {
 }
 
 V2 get_screen_position_in_buffer(Font *font, Buffer *b, i32 pos) {
+  begin_profiler_function();
   V2 result = v2(0, -(f32)font->line_spacing);
   
   for (i32 char_index = 0; char_index < pos; char_index++) {
@@ -59,26 +60,34 @@ V2 get_screen_position_in_buffer(Font *font, Buffer *b, i32 pos) {
     
     result.x += font_get_advance(font, first, second);
   }
+  
+  end_profiler_function();
   return result;
 }
 
 i32 seek_line_start(Buffer *b, i32 start) {
+  begin_profiler_function();
   i32 result = max(start, 0);
   while (result > 0 && get_buffer_char(b, result-1) != '\n') {
     result--;
   }
+  end_profiler_function();
   return result;
 }
 
 i32 seek_line_end(Buffer *b, i32 start) {
+  begin_profiler_function();
   i32 result = min(start, b->count - 1);
   while (result < (i32)b->count-1 && get_buffer_char(b, result) != '\n') {
     result++;
   }
+  end_profiler_function();
   return result;
 }
 
 void set_cursor(Buffer *b, i32 pos) {
+  begin_profiler_function();
+  
   assert(pos >= 0 && pos < b->count);
   i32 old_gap_start = get_gap_start(b);
   b->cursor = pos;
@@ -98,44 +107,38 @@ void set_cursor(Buffer *b, i32 pos) {
         b->data[old_gap_start+i] = b->data[old_gap_start+gap_count+i];
       }
     }
-    
-    for (i32 i = 0; i < gap_count; i++) {
-      b->data[gap_start+i] = '|';
-    }
   }
+  
+  end_profiler_function();
 }
 
 void buffer_parse(Buffer *buffer) {
+  begin_profiler_function();
+  
   arena_set_mark(&buffer->cache.arena, 0);
   push_arena_context(&buffer->cache.arena); {
     Parser _parser = {
-      .scope_start_index = 0,
       .token_index = 0,
       .buffer = buffer,
+      .scope = buffer->editor->global_scope,
     };
     
     buffer->cache.dependencies = sb_new(String, 16);
     buffer->cache.colors = sb_new(Syntax, buffer->count);
-    buffer->cache.symbols = sb_new(Symbol, 256);
-    buffer->cache.visible_symbols = sb_new(Symbol *, 64);
     buffer->cache.tokens = sb_new(Token, 4096);
     
     Parser *parser = &_parser;
     
     buffer_tokenize(parser);
-    add_symbol(parser, const_string("char"), Syntax_TYPE);
-    add_symbol(parser, const_string("void"), Syntax_TYPE);
-    add_symbol(parser, const_string("short"), Syntax_TYPE);
-    add_symbol(parser, const_string("int"), Syntax_TYPE);
-    add_symbol(parser, const_string("long"), Syntax_TYPE);
-    add_symbol(parser, const_string("float"), Syntax_TYPE);
-    add_symbol(parser, const_string("double"), Syntax_TYPE);
     parse_program(parser);
   }
   pop_context();
+  
+  end_profiler_function();
 }
 
 Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
+  begin_profiler_function();
   // TODO(lvl5): store all cache in the arena
   push_scratch_context();
   Buffer **dependents = sb_new(Buffer **, 16);
@@ -159,12 +162,20 @@ Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   }
   
   pop_context();
+  
+  end_profiler_function();
   return dependents;
 }
 
 void buffer_changed(Buffer *buffer) {
+  begin_profiler_function();
+  
   bool not_scratch = get_context()->allocator == system_allocator;
   assert(not_scratch);
+  
+  Scope *global_scope = buffer->editor->global_scope;
+  // TODO(lvl5): need to clear out all the symbols that were
+  // inserted into the scope from this buffer
   
   buffer_parse(buffer);
   Buffer **dependents = buffer_get_dependent_buffers(buffer);
@@ -172,12 +183,16 @@ void buffer_changed(Buffer *buffer) {
     Buffer *dep = dependents[i];
     buffer_changed(dep);
   }
+  
+  end_profiler_function();
 }
 
 
 #define BUFFER_INCREMENT_SIZE 1024
 
 void buffer_insert_string(Buffer *b, String str) {
+  begin_profiler_function();
+  
   bool not_scratch = get_context()->allocator == system_allocator;
   assert(not_scratch);
   if (b->count + (i32)str.count > b->capacity) {
@@ -220,10 +235,14 @@ void buffer_insert_string(Buffer *b, String str) {
   b->count += (i32)str.count;
   
   buffer_changed(b);
+  
+  end_profiler_function();
 }
 
 
 Buffer make_empty_buffer(Editor *editor) {
+  begin_profiler_function();
+  
   Buffer b = {0};
   b.capacity = 0;
   b.file_name = const_string("scratch");
@@ -236,10 +255,14 @@ Buffer make_empty_buffer(Editor *editor) {
   
   buffer_insert_string(&b, const_string("\0"));
   set_cursor(&b, 0);
+  
+  end_profiler_function();
   return b;
 }
 
 void buffer_remove_backward(Buffer *b, i32 count) {
+  begin_profiler_function();
+  
   if (b->cursor - count >= 0) {
     if (b->mark >= b->cursor) {
       b->mark -= count;
@@ -249,9 +272,13 @@ void buffer_remove_backward(Buffer *b, i32 count) {
     
     buffer_changed(b);
   }
+  
+  end_profiler_function();
 }
 
 void buffer_remove_forward(Buffer *b, i32 count) {
+  begin_profiler_function();
+  
   if (b->cursor < b->count - 1) {
     if (b->mark > b->cursor) {
       b->mark -= count;
@@ -260,9 +287,13 @@ void buffer_remove_forward(Buffer *b, i32 count) {
     
     buffer_changed(b);
   }
+  
+  end_profiler_function();
 }
 
 f32 get_pixel_position_in_line(Font *font, Buffer *b, i32 pos) {
+  begin_profiler_function();
+  
   i32 line_start = seek_line_start(b, pos);
   f32 result = 0;
   for (i32 i = line_start; i < pos; i++) {
@@ -270,10 +301,14 @@ f32 get_pixel_position_in_line(Font *font, Buffer *b, i32 pos) {
                                get_buffer_char(b, i),
                                get_buffer_char(b, i + 1));
   }
+  
+  end_profiler_function();
   return result;
 }
 
 b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
+  begin_profiler_function();
+  
   b32 result = false;
   i32 cursor = b->cursor;
   switch (direction) {
@@ -366,19 +401,28 @@ b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
   }
   set_cursor(b, cursor);
   
+  end_profiler_function();
   return result;
 }
 
 String buffer_part_to_string(Buffer *buffer, i32 start, i32 end) {
-  begin_profiler_event("buffer_part_to_string");
+  begin_profiler_function();
+  
   String str = {0};
   str.count = end - start;
-  str.data = scratch_push_array(char, str.count);
-  for (i32 i = 0; i < (i32)str.count; i++) {
-    str.data[i] = get_buffer_char(buffer, start + i);
+  
+  if ((start < buffer->cursor) & (end >= buffer->cursor)) {
+    str.data = scratch_push_array(char, str.count);
+    for (i32 i = 0; i < (i32)str.count; i++) {
+      str.data[i] = get_buffer_char(buffer, start + i);
+    }
+  } else if (start < buffer->cursor) {
+    str.data = buffer->data + start;
+  } else {
+    str.data = buffer->data + start + (buffer->capacity - buffer->count);
   }
   
-  end_profiler_event("buffer_part_to_string");
+  end_profiler_function();
   return str;
 }
 

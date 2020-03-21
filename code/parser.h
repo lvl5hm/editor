@@ -186,6 +186,7 @@ String Token_Kind_To_String[] = {
 
 
 enum {
+  Syntax_NONE,
   Syntax_DEFAULT,
   Syntax_BACKGROUND,
   Syntax_COMMENT,
@@ -233,8 +234,21 @@ typedef struct Token {
 
 typedef struct Buffer Buffer;
 
+
+
+
+typedef struct Scope Scope;
+typedef struct Scope {
+  String *keys;
+  Symbol *values;
+  u32 count;
+  u32 capacity;
+  
+  Scope *parent;
+} Scope;
+
 typedef struct Parser {
-  i32 scope_start_index;
+  Scope *scope;
   i32 token_index;
   Buffer *buffer;
 } Parser;

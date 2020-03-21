@@ -4,6 +4,7 @@
 Keybind *get_keybind(Editor *editor, os_Keycode keycode, 
                      bool shift, bool ctrl, bool alt) 
 {
+  begin_profiler_function();
   Settings *settings = &editor->settings;
   Panel *panel = editor->panels + editor->active_panel_index;
   
@@ -20,11 +21,13 @@ Keybind *get_keybind(Editor *editor, os_Keycode keycode,
       break;
     }
   }
+  end_profiler_function();
   return result;
 }
 
 Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path) 
 {
+  begin_profiler_function();
   Buffer buffer = make_empty_buffer(editor);
   
   os_File file = os.open_file(path);
@@ -40,10 +43,13 @@ Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path)
   set_cursor(&buffer, 0);
   sb_push(editor->buffers, buffer);
   Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
+  
+  end_profiler_function();
   return inserted;
 }
 
 Buffer *get_existing_buffer(Editor *editor, String file_name) {
+  begin_profiler_function();
   Buffer *result = null;
   for (u32 buffer_index = 0; 
        buffer_index < sb_count(editor->buffers);
@@ -55,10 +61,12 @@ Buffer *get_existing_buffer(Editor *editor, String file_name) {
       break;
     }
   }
+  end_profiler_function();
   return result;
 }
 
 void execute_command(Os os, Editor *editor, Renderer *renderer, Command command) {
+  begin_profiler_function();
   Font *font = renderer->state.font;
   
   Panel *panel = editor->panels + editor->active_panel_index;
@@ -150,10 +158,12 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       };
     } break;
   }
+  end_profiler_function();
 }
 
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   App_State *state = (App_State *)memory->data;
+  
   
   if(memory->reloaded) {
     global_context_info = os.context_info;
@@ -162,12 +172,19 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     profiler_event_count = os.profiler_event_count;
   }
   
+  profiler_event_count = 0;
+  
   Context *_old_context = get_context();
   Context ctx = *_old_context;
   ctx.allocator = system_allocator;
   push_context(ctx);
+  scratch_reset();
+  
+  
   
   if (!memory->initialized) {
+    u64 stamp_start = __rdtsc();
+    
     memory->initialized = true;
     
     GLuint shader = gl_create_shader_from_file(os.gl, os.read_entire_file, const_string("shader.glsl"));
@@ -184,6 +201,19 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     Editor *editor = &state->editor;
+    editor->global_scope = add_scope(null, 20000);
+    add_symbol(editor->global_scope, const_string("char"), Syntax_TYPE);
+    add_symbol(editor->global_scope, const_string("void"), Syntax_TYPE);
+    add_symbol(editor->global_scope, const_string("short"), Syntax_TYPE);
+    add_symbol(editor->global_scope, const_string("int"), Syntax_TYPE);
+    add_symbol(editor->global_scope, const_string("long"), Syntax_TYPE);
+    add_symbol(editor->global_scope, const_string("float"), Syntax_TYPE);
+    add_symbol(editor->global_scope, const_string("double"), Syntax_TYPE);
+    
+    {
+      Symbol *symbol = get_symbol_in_scope(editor->global_scope, const_string("char"));
+      assert(symbol->type == Syntax_TYPE);
+    }
     
     {
       editor->buffers = sb_new(Buffer, 16);
@@ -356,21 +386,37 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     }
     
     glEnable(GL_SCISSOR_TEST);
+    
+    
+    
+    {
+      static u64 total = 0;
+      static u64 count = 0;
+      
+      u64 stamp_end = __rdtsc();
+      u64 dur = stamp_end - stamp_start;
+      total += dur;
+      count++;
+      
+      char buffer[128];
+      sprintf_s(buffer, 128, "%lld\n", total/count);
+      os.debug_pring(buffer);
+    }
+    
   }
+  
   Editor *editor = &state->editor;
   Renderer *renderer = &state->renderer;
   Font *font = renderer->state.font;
   gl_Funcs gl = os.gl;
   
-  profiler_event_count = 0;
-  begin_profiler_event("loop");
-  scratch_reset();
   
-  begin_profiler_event("collect_messages");
+  
+  
   os.collect_messages(memory->window, input);
-  end_profiler_event("collect_messages");
   
-  begin_profiler_event("input");
+  
+  
   os_Event event;
   while (os.pop_event(&event)) {
     switch (event.type) {
@@ -425,11 +471,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       }
     }
   }
-  end_profiler_event("input");
   
-  
-  begin_profiler_event("render");
-  u64 stamp_start = __rdtsc();
   
   for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
     Panel *panel = editor->panels + panel_index;
@@ -478,26 +520,10 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     renderer_end_render(gl, renderer);
   }
   
-  {
-    static u64 total = 0;
-    static u64 count = 0;
-    
-    u64 stamp_end = __rdtsc();
-    u64 dur = stamp_end - stamp_start;
-    total += dur;
-    count++;
-    
-    char buffer[128];
-    sprintf_s(buffer, 128, "%lld\n", total/count);
-    os.debug_pring(buffer);
-  }
+  static bool true_once = true;
   
-  end_profiler_event("render");
-  
-  
-  end_profiler_event("loop");
-  
-  if (input->keys['P'].went_down && input->alt) {
+  if (true_once) {
+    true_once = false;
     FILE *file;
     errno_t err = fopen_s(&file, "profile.json", "wb");
     

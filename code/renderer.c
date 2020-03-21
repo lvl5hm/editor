@@ -199,7 +199,7 @@ void queue_rect(Quad_Instance *instances, Rect2 rect, Renderer_State state) {
 }
 
 void renderer_end_render(gl_Funcs gl, Renderer *r) {
-  begin_profiler_event("renderer_output");
+  begin_profiler_function();
   
   push_scratch_context();
   
@@ -257,8 +257,6 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
       } break;
       
       case Render_Type_BUFFER: {
-        begin_profiler_event("render_buffer");
-        
         M4 matrix = item->state.matrix;
         Font *font = item->state.font;
         
@@ -394,8 +392,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         }
         
         
-        end:
-        end_profiler_event("render_buffer");
+        end:;
       } break;
     }
   }
@@ -412,5 +409,5 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
   
   pop_context();
   
-  end_profiler_event("renderer_output");
+  end_profiler_function();
 }
