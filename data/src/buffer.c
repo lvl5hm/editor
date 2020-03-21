@@ -105,17 +105,81 @@ void set_cursor(Buffer *b, i32 pos) {
   }
 }
 
-void buffer_changed(Buffer *b) {
-  if (b->colors) {
-    sb_free(b->colors);
+Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
+  // TODO(lvl5): store all cache in the arena
+  push_scratch_context();
+  Buffer **dependents = sb_new(Buffer **, 16);
+  
+  for (u32 buffer_index = 0;
+       buffer_index < sb_count(buffer->editor->buffers);
+       buffer_index++) 
+  {
+    Buffer *other = buffer->editor->buffers + buffer_index;
+    for (u32 dep_index = 0; 
+         dep_index < sb_count(other->cache.dependencies);
+         dep_index++) 
+    {
+      // TODO(lvl5): need to search in the file system like the preprocessor does
+      String include = other->cache.dependencies[dep_index];
+      if (string_compare(include, buffer->file_name)) {
+        sb_push(dependents, other);
+        break;
+      }
+    }
   }
-  b->colors = buffer_parse(b);
+  
+  pop_context();
+  return dependents;
+}
+
+void buffer_parse(Buffer *buffer) {
+  arena_set_mark(&buffer->cache.arena, 0);
+  push_arena_context(&buffer->cache.arena); {
+    Parser _parser = {
+      .scope_start_index = 0,
+      .token_index = 0,
+      .buffer = buffer,
+    };
+    
+    buffer->cache.dependencies = sb_new(String, 16);
+    buffer->cache.colors = sb_new(Syntax, buffer->count);
+    buffer->cache.symbols = sb_new(Symbol, 256);
+    buffer->cache.visible_symbols = sb_new(Symbol *, 64);
+    buffer->cache.tokens = sb_new(Token, 2048);
+    
+    Parser *parser = &_parser;
+    
+    buffer_tokenize(parser);
+    add_symbol(parser, const_string("char"), Syntax_TYPE);
+    add_symbol(parser, const_string("void"), Syntax_TYPE);
+    add_symbol(parser, const_string("short"), Syntax_TYPE);
+    add_symbol(parser, const_string("int"), Syntax_TYPE);
+    add_symbol(parser, const_string("long"), Syntax_TYPE);
+    add_symbol(parser, const_string("float"), Syntax_TYPE);
+    add_symbol(parser, const_string("double"), Syntax_TYPE);
+    parse_program(parser);
+  }
+  pop_context();
+}
+
+void buffer_changed(Buffer *buffer) {
+  bool not_scratch = get_context()->allocator == system_allocator;
+  assert(not_scratch);
+  
+  buffer_parse(buffer);
+  Buffer **dependents = buffer_get_dependent_buffers(buffer);
+  for (u32 i = 0; i < sb_count(dependents); i++) {
+    Buffer *dep = dependents[i];
+    buffer_changed(dep);
+  }
 }
 
 
 #define BUFFER_INCREMENT_SIZE 1024
 
 void buffer_insert_string(Buffer *b, String str) {
+  bool not_scratch = get_context()->allocator == system_allocator;
+  assert(not_scratch);
   if (b->count + (i32)str.count > b->capacity) {
     char *old_data = b->data;
     i32 old_gap_start = get_gap_start(b);
@@ -128,7 +192,8 @@ void buffer_insert_string(Buffer *b, String str) {
     while (b->count + (i32)str.count > b->capacity) {
       b->capacity = b->capacity*2;
     }
-    b->data = alloc_array(char, b->capacity);
+    b->data = alloc_array(char, b->capacity + 1);
+    b->data[b->capacity] = '\0';
     i32 gap_start = get_gap_start(b);
     i32 gap_count = get_gap_count(b);
     
@@ -158,37 +223,43 @@ void buffer_insert_string(Buffer *b, String str) {
 }
 
 
-Buffer make_empty_buffer() {
+Buffer make_empty_buffer(Editor *editor) {
   Buffer b = {0};
-  b.capacity = BUFFER_INCREMENT_SIZE;
-  b.data = alloc_array(char, b.capacity);
+  b.capacity = 0;
   b.file_name = const_string("scratch");
+  b.editor = editor;
+  
+  bool not_scratch = get_context()->allocator == system_allocator;
+  assert(not_scratch);
+  Mem_Size arena_size = megabytes(2);
+  arena_init(&b.cache.arena, alloc_array(byte, arena_size), arena_size);
+  
   buffer_insert_string(&b, const_string("\0"));
   set_cursor(&b, 0);
   return b;
 }
 
 void buffer_remove_backward(Buffer *b, i32 count) {
-  assert(b->cursor - count >= 0);
-  
-  if (b->mark >= b->cursor) {
-    b->mark -= count;
+  if (b->cursor - count >= 0) {
+    if (b->mark >= b->cursor) {
+      b->mark -= count;
+    }
+    b->cursor -= count;
+    b->count -= count;
+    
+    buffer_changed(b);
   }
-  b->cursor -= count;
-  b->count -= count;
-  
-  buffer_changed(b);
 }
 
 void buffer_remove_forward(Buffer *b, i32 count) {
-  assert(b->cursor < b->count - 1);
-  
-  if (b->mark > b->cursor) {
-    b->mark -= count;
+  if (b->cursor < b->count - 1) {
+    if (b->mark > b->cursor) {
+      b->mark -= count;
+    }
+    b->count -= count;
+    
+    buffer_changed(b);
   }
-  b->count -= count;
-  
-  buffer_changed(b);
 }
 
 f32 get_pixel_position_in_line(Font *font, Buffer *b, i32 pos) {
@@ -230,7 +301,7 @@ b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
       
       i32 want = min(line_end + 1, b->count - 1);
       f32 want_pixel = 0;
-      while (get_buffer_char(b, want) != '\n') {
+      while (want < b->count-1 && get_buffer_char(b, want) != '\n') {
         i8 advance = font_get_advance(font, 
                                       get_buffer_char(b, want), 
                                       get_buffer_char(b, want+1));
@@ -276,6 +347,21 @@ b32 move_cursor_direction(Font *font, Buffer *b, Command direction) {
       cursor = want;
     } break;
     
+    case Command_MOVE_CURSOR_LINE_END: {
+      i32 line_end = seek_line_end(b, cursor);
+      cursor = line_end;
+      b->preferred_col_pos = cursor;
+    } break;
+    
+    case Command_MOVE_CURSOR_LINE_START: {
+      i32 line_start = seek_line_start(b, cursor);
+      while (get_buffer_char(b, line_start) == ' ') {
+        line_start++;
+      }
+      cursor = line_start;
+      b->preferred_col_pos = cursor;
+    } break;
+    
     default: assert(false);
   }
   set_cursor(b, cursor);
@@ -301,23 +387,23 @@ String text_buffer_to_string(Buffer *buffer) {
   return result;
 }
 
-void buffer_copy(Buffer *buffer) {
+void buffer_copy(Buffer *buffer, Exchange *exchange) {
   i32 start = min(buffer->cursor, buffer->mark);
   i32 end = max(buffer->cursor, buffer->mark);
-  buffer->exchange_count = end - start;
-  assert(buffer->exchange_count <= MAX_EXCHANGE_COUNT);
-  for (i32 i = 0; i < buffer->exchange_count; i++) {
-    buffer->exchange[i] = get_buffer_char(buffer, start+i);
+  exchange->count = end - start;
+  assert(exchange->count <= MAX_EXCHANGE_COUNT);
+  for (i32 i = 0; i < exchange->count; i++) {
+    exchange->data[i] = get_buffer_char(buffer, start+i);
   }
 }
 
-void buffer_paste(Buffer *buffer) {
-  String str = make_string(buffer->exchange, buffer->exchange_count);
+void buffer_paste(Buffer *buffer, Exchange *exchange) {
+  String str = make_string(exchange->data, exchange->count);
   buffer_insert_string(buffer, str);
 }
 
-void buffer_cut(Buffer *buffer) {
-  buffer_copy(buffer);
+void buffer_cut(Buffer *buffer, Exchange *exchange) {
+  buffer_copy(buffer, exchange);
   i32 count = buffer->cursor - buffer->mark;
   if (buffer->cursor < buffer->mark) {
     i32 tmp = buffer->cursor;

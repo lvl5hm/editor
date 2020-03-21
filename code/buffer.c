@@ -105,14 +105,81 @@ void set_cursor(Buffer *b, i32 pos) {
   }
 }
 
-void buffer_changed(Buffer *b, Parser *p) {
-  buffer_parse(b, p);
+Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
+  // TODO(lvl5): store all cache in the arena
+  push_scratch_context();
+  Buffer **dependents = sb_new(Buffer **, 16);
+  
+  for (u32 buffer_index = 0;
+       buffer_index < sb_count(buffer->editor->buffers);
+       buffer_index++) 
+  {
+    Buffer *other = buffer->editor->buffers + buffer_index;
+    for (u32 dep_index = 0; 
+         dep_index < sb_count(other->cache.dependencies);
+         dep_index++) 
+    {
+      // TODO(lvl5): need to search in the file system like the preprocessor does
+      String include = other->cache.dependencies[dep_index];
+      if (string_compare(include, buffer->file_name)) {
+        sb_push(dependents, other);
+        break;
+      }
+    }
+  }
+  
+  pop_context();
+  return dependents;
+}
+
+void buffer_parse(Buffer *buffer) {
+  arena_set_mark(&buffer->cache.arena, 0);
+  push_arena_context(&buffer->cache.arena); {
+    Parser _parser = {
+      .scope_start_index = 0,
+      .token_index = 0,
+      .buffer = buffer,
+    };
+    
+    buffer->cache.dependencies = sb_new(String, 16);
+    buffer->cache.colors = sb_new(Syntax, buffer->count);
+    buffer->cache.symbols = sb_new(Symbol, 256);
+    buffer->cache.visible_symbols = sb_new(Symbol *, 64);
+    buffer->cache.tokens = sb_new(Token, 2048);
+    
+    Parser *parser = &_parser;
+    
+    buffer_tokenize(parser);
+    add_symbol(parser, const_string("char"), Syntax_TYPE);
+    add_symbol(parser, const_string("void"), Syntax_TYPE);
+    add_symbol(parser, const_string("short"), Syntax_TYPE);
+    add_symbol(parser, const_string("int"), Syntax_TYPE);
+    add_symbol(parser, const_string("long"), Syntax_TYPE);
+    add_symbol(parser, const_string("float"), Syntax_TYPE);
+    add_symbol(parser, const_string("double"), Syntax_TYPE);
+    parse_program(parser);
+  }
+  pop_context();
+}
+
+void buffer_changed(Buffer *buffer) {
+  bool not_scratch = get_context()->allocator == system_allocator;
+  assert(not_scratch);
+  
+  buffer_parse(buffer);
+  Buffer **dependents = buffer_get_dependent_buffers(buffer);
+  for (u32 i = 0; i < sb_count(dependents); i++) {
+    Buffer *dep = dependents[i];
+    buffer_changed(dep);
+  }
 }
 
 
 #define BUFFER_INCREMENT_SIZE 1024
 
-void buffer_insert_string(Buffer *b, String str, Parser *parser) {
+void buffer_insert_string(Buffer *b, String str) {
+  bool not_scratch = get_context()->allocator == system_allocator;
+  assert(not_scratch);
   if (b->count + (i32)str.count > b->capacity) {
     char *old_data = b->data;
     i32 old_gap_start = get_gap_start(b);
@@ -152,20 +219,27 @@ void buffer_insert_string(Buffer *b, String str, Parser *parser) {
   b->cursor += (i32)str.count;
   b->count += (i32)str.count;
   
-  buffer_changed(b, parser);
+  buffer_changed(b);
 }
 
 
-Buffer make_empty_buffer(Parser *parser) {
+Buffer make_empty_buffer(Editor *editor) {
   Buffer b = {0};
   b.capacity = 0;
   b.file_name = const_string("scratch");
-  buffer_insert_string(&b, const_string("\0"), parser);
+  b.editor = editor;
+  
+  bool not_scratch = get_context()->allocator == system_allocator;
+  assert(not_scratch);
+  Mem_Size arena_size = megabytes(2);
+  arena_init(&b.cache.arena, alloc_array(byte, arena_size), arena_size);
+  
+  buffer_insert_string(&b, const_string("\0"));
   set_cursor(&b, 0);
   return b;
 }
 
-void buffer_remove_backward(Buffer *b, i32 count, Parser *p) {
+void buffer_remove_backward(Buffer *b, i32 count) {
   if (b->cursor - count >= 0) {
     if (b->mark >= b->cursor) {
       b->mark -= count;
@@ -173,18 +247,18 @@ void buffer_remove_backward(Buffer *b, i32 count, Parser *p) {
     b->cursor -= count;
     b->count -= count;
     
-    buffer_changed(b, p);
+    buffer_changed(b);
   }
 }
 
-void buffer_remove_forward(Buffer *b, i32 count, Parser *p) {
+void buffer_remove_forward(Buffer *b, i32 count) {
   if (b->cursor < b->count - 1) {
     if (b->mark > b->cursor) {
       b->mark -= count;
     }
     b->count -= count;
     
-    buffer_changed(b, p);
+    buffer_changed(b);
   }
 }
 
@@ -323,12 +397,12 @@ void buffer_copy(Buffer *buffer, Exchange *exchange) {
   }
 }
 
-void buffer_paste(Buffer *buffer, Exchange *exchange, Parser *p) {
+void buffer_paste(Buffer *buffer, Exchange *exchange) {
   String str = make_string(exchange->data, exchange->count);
-  buffer_insert_string(buffer, str, p);
+  buffer_insert_string(buffer, str);
 }
 
-void buffer_cut(Buffer *buffer, Exchange *exchange, Parser *p) {
+void buffer_cut(Buffer *buffer, Exchange *exchange) {
   buffer_copy(buffer, exchange);
   i32 count = buffer->cursor - buffer->mark;
   if (buffer->cursor < buffer->mark) {
@@ -337,11 +411,11 @@ void buffer_cut(Buffer *buffer, Exchange *exchange, Parser *p) {
     buffer->mark = tmp;
     count *= -1;
   }
-  buffer_remove_backward(buffer, count, p);
+  buffer_remove_backward(buffer, count);
 }
 
 
-void buffer_newline(Buffer *buffer, Parser *p) {
+void buffer_newline(Buffer *buffer) {
   i32 line_start = seek_line_start(buffer, buffer->cursor);
   String indent_str = { .count = 1 };
   while (get_buffer_char(buffer, 
@@ -365,19 +439,19 @@ void buffer_newline(Buffer *buffer, Parser *p) {
     indent_str.data[i] = ' ';
   }
   
-  buffer_insert_string(buffer, indent_str, p);
+  buffer_insert_string(buffer, indent_str);
 }
 
-void buffer_indent(Buffer *buffer, Parser *p) {
+void buffer_indent(Buffer *buffer) {
   String indent_str = make_string(scratch_push_array(char, 2), 2);
   for (i32 i = 0; i < (i32)indent_str.count; i++) {
     indent_str.data[i] = ' ';
   }
   
-  buffer_insert_string(buffer, indent_str, p);
+  buffer_insert_string(buffer, indent_str);
 }
 
-void buffer_input_string(Buffer *buffer, String str, Parser *p) {
+void buffer_input_string(Buffer *buffer, String str) {
   if (str.data[0] == '}') {
     i32 start = seek_line_start(buffer, buffer->cursor);
     bool only_indent = true;
@@ -388,13 +462,13 @@ void buffer_input_string(Buffer *buffer, String str, Parser *p) {
       }
     }
     if (only_indent && buffer->cursor >= 2) {
-      buffer_remove_backward(buffer, 2, p);
+      buffer_remove_backward(buffer, 2);
     }
   }
   if (str.data[0] != '\t' && 
       str.data[0] != '\b' && 
       str.data[0] != '\r') {
-    buffer_insert_string(buffer, str, p);
+    buffer_insert_string(buffer, str);
   }
 }
 

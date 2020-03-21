@@ -1,7 +1,6 @@
 #ifndef EDITOR_H
 #include "buffer.h"
 #include "common.h"
-#include "parser.h"
 
 typedef enum {
   Command_NONE,
@@ -84,7 +83,7 @@ typedef struct {
   V2 scroll;
 } Panel;
 
-typedef struct {
+typedef struct Editor {
   Buffer *buffers;
   Panel *panels;
   i32 active_panel_index;
@@ -92,7 +91,6 @@ typedef struct {
   Lister current_dir_files;
   Settings settings;
   Exchange exchange;
-  Parser parser;
 } Editor;
 
 #include "renderer.h"

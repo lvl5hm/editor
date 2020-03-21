@@ -1,6 +1,5 @@
 #ifndef PARSER_H
 #include <lvl5_types.h>
-#include "buffer.h"
 
 typedef enum {
   T_NONE,
@@ -186,23 +185,58 @@ String Token_Kind_To_String[] = {
 };
 
 
-struct Token {
-  Token_Type kind;
-  i32 start;
-  i32 end;
+enum {
+  Syntax_DEFAULT,
+  Syntax_BACKGROUND,
+  Syntax_COMMENT,
+  Syntax_TYPE,
+  Syntax_MACRO,
+  Syntax_FUNCTION,
+  Syntax_ARG,
+  Syntax_OPERATOR,
+  Syntax_KEYWORD,
+  Syntax_CURSOR,
+  Syntax_NUMBER,
+  Syntax_STRING,
+  Syntax_ENUM_MEMBER,
+  
+  Syntax_count,
 };
 
-typedef struct {
+typedef i8 Syntax;
+
+typedef struct Token Token;
+typedef struct Symbol Symbol;
+typedef struct Symbol {
+  union {
+    struct {
+      Symbol *predecl;
+      Symbol **members;
+    } struct_def;
+    struct {
+      Symbol **args;
+      Symbol *return_type;
+    } function;
+  };
+  
   String name;
-  Syntax kind;
+  Token *token;
+  Syntax type;
 } Symbol;
 
-typedef struct {
-  i32 i;
-  Token *tokens;
-  
+typedef struct Token {
+  Token_Type type;
+  i32 start;
+  i32 end;
+  Symbol declaration;
+} Token;
+
+typedef struct Buffer Buffer;
+
+typedef struct Parser {
+  i32 scope_start_index;
+  i32 token_index;
   Buffer *buffer;
-  Symbol *symbols;
 } Parser;
 
 

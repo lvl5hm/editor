@@ -23,6 +23,41 @@ Keybind *get_keybind(Editor *editor, os_Keycode keycode,
   return result;
 }
 
+Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path) 
+{
+  Buffer buffer = make_empty_buffer(editor);
+  
+  os_File file = os.open_file(path);
+  u64 file_size = os.get_file_size(file);
+  char *file_memory = alloc_array(char, file_size);
+  os.read_file(file, file_memory, 0, file_size);
+  os.close_file(file);
+  
+  String str = make_string(file_memory, file_size);
+  buffer_insert_string(&buffer, str);
+  free_memory(file_memory);
+  
+  set_cursor(&buffer, 0);
+  sb_push(editor->buffers, buffer);
+  Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
+  return inserted;
+}
+
+Buffer *get_existing_buffer(Editor *editor, String file_name) {
+  Buffer *result = null;
+  for (u32 buffer_index = 0; 
+       buffer_index < sb_count(editor->buffers);
+       buffer_index++) 
+  {
+    Buffer *b = editor->buffers + buffer_index;
+    if (string_compare(b->file_name, file_name)) {
+      result = b;
+      break;
+    }
+  }
+  return result;
+}
+
 void execute_command(Os os, Editor *editor, Renderer *renderer, Command command) {
   Font *font = renderer->state.font;
   
@@ -45,10 +80,10 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       buffer_copy(buffer, &editor->exchange);
     } break;
     case Command_PASTE: {
-      buffer_paste(buffer, &editor->exchange, &editor->parser);
+      buffer_paste(buffer, &editor->exchange);
     } break;
     case Command_CUT: {
-      buffer_cut(buffer, &editor->exchange, &editor->parser);
+      buffer_cut(buffer, &editor->exchange);
     } break;
     
     case Command_MOVE_CURSOR_WORD_START:
@@ -77,16 +112,16 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
     } break;
     
     case Command_REMOVE_BACKWARD: {
-      buffer_remove_backward(buffer, 1, &editor->parser);
+      buffer_remove_backward(buffer, 1);
     } break;
     case Command_REMOVE_FORWARD: {
-      buffer_remove_forward(buffer, 1, &editor->parser);
+      buffer_remove_forward(buffer, 1);
     } break;
     case Command_NEWLINE: {
-      buffer_newline(buffer, &editor->parser);
+      buffer_newline(buffer);
     } break;
     case Command_TAB: {
-      buffer_indent(buffer, &editor->parser);
+      buffer_indent(buffer);
     } break;
     case Command_OPEN_FILE_DIALOG: {
       panel->type = Panel_Type_FILE_DIALOG_OPEN;
@@ -103,22 +138,15 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       String file_name = lister->items[lister->index];
       String path = concat(const_string("src/"), file_name);
       
-      os_File file = os.open_file(path);
-      u64 file_size = os.get_file_size(file);
-      char *file_memory = alloc_array(char, file_size);
-      os.read_file(file, file_memory, 0, file_size);
-      os.close_file(file);
-      
-      String str = make_string(file_memory, file_size);
-      Buffer buffer = make_empty_buffer(&editor->parser);
-      buffer_insert_string(&buffer, str, &editor->parser);
-      set_cursor(&buffer, 0);
-      sb_push(editor->buffers, buffer);
-      Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
+      Buffer *buffer = get_existing_buffer(editor, file_name);
+      if (!buffer) {
+        buffer = open_file_into_new_buffer(os, editor, path);
+        buffer->file_name = alloc_string(file_name.data, file_name.count);
+      }
       
       panel->type = Panel_Type_BUFFER;
       panel->buffer_view = (Buffer_View){
-        .buffer = inserted,
+        .buffer = buffer,
       };
     } break;
   }
@@ -133,6 +161,11 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     profiler_event_capacity = os.profiler_event_capacity;
     profiler_event_count = os.profiler_event_count;
   }
+  
+  Context *_old_context = get_context();
+  Context ctx = *_old_context;
+  ctx.allocator = system_allocator;
+  push_context(ctx);
   
   if (!memory->initialized) {
     memory->initialized = true;
@@ -155,20 +188,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     {
       editor->buffers = sb_new(Buffer, 16);
       editor->panels = sb_new(Panel, 16);
-      editor->parser = (Parser){
-        .i = 0,
-        .tokens = null,
-        .symbols = sb_new(Symbol, 256),
-      };
-      add_symbol(&editor->parser, const_string("char"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("void"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("short"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("int"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("long"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("float"), Syntax_TYPE);
-      add_symbol(&editor->parser, const_string("double"), Syntax_TYPE);
       
-      sb_push(editor->buffers, make_empty_buffer(&editor->parser));
+      sb_push(editor->buffers, make_empty_buffer(editor));
       Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
       
       
@@ -385,7 +406,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       if (!input->ctrl && !input->alt) {
         if (input->char_count > 0) {
           String str = make_string(input->chars, input->char_count);
-          buffer_input_string(active_panel->buffer_view.buffer, str, &editor->parser);
+          buffer_input_string(active_panel->buffer_view.buffer, str);
         }
       }
     }
@@ -483,5 +504,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     fclose(file);
   }
   
+  pop_context();
 }
 

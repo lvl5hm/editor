@@ -23,6 +23,41 @@ Keybind *get_keybind(Editor *editor, os_Keycode keycode,
   return result;
 }
 
+Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path) 
+{
+  Buffer buffer = make_empty_buffer(editor);
+  
+  os_File file = os.open_file(path);
+  u64 file_size = os.get_file_size(file);
+  char *file_memory = alloc_array(char, file_size);
+  os.read_file(file, file_memory, 0, file_size);
+  os.close_file(file);
+  
+  String str = make_string(file_memory, file_size);
+  buffer_insert_string(&buffer, str);
+  free_memory(file_memory);
+  
+  set_cursor(&buffer, 0);
+  sb_push(editor->buffers, buffer);
+  Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
+  return inserted;
+}
+
+Buffer *get_existing_buffer(Editor *editor, String path) {
+  Buffer *result = null;
+  for (u32 buffer_index = 0; 
+       buffer_index < sb_count(editor->buffers);
+       buffer_index++) 
+  {
+    Buffer *b = editor->buffers + buffer_index;
+    if (string_compare(b->file_name, path)) {
+      result = b;
+      break;
+    }
+  }
+  return result;
+}
+
 void execute_command(Os os, Editor *editor, Renderer *renderer, Command command) {
   Font *font = renderer->state.font;
   
@@ -42,15 +77,19 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       buffer->mark = buffer->cursor;
     } break;
     case Command_COPY: {
-      buffer_copy(buffer);
+      buffer_copy(buffer, &editor->exchange);
     } break;
     case Command_PASTE: {
-      buffer_paste(buffer);
+      buffer_paste(buffer, &editor->exchange);
     } break;
     case Command_CUT: {
-      buffer_cut(buffer);
+      buffer_cut(buffer, &editor->exchange);
     } break;
     
+    case Command_MOVE_CURSOR_WORD_START:
+    case Command_MOVE_CURSOR_WORD_END:
+    case Command_MOVE_CURSOR_LINE_END:
+    case Command_MOVE_CURSOR_LINE_START:
     case Command_MOVE_CURSOR_RIGHT:
     case Command_MOVE_CURSOR_UP:
     case Command_MOVE_CURSOR_DOWN:
@@ -62,13 +101,14 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
     case Command_LISTER_MOVE_UP: {
       Lister *lister = &editor->current_dir_files;
       
-      i32 add = 0;
+      i32 count = (i32)sb_count(lister->items);
       if (command == Command_LISTER_MOVE_DOWN) {
-        add = 1;
+        lister->index++;
+        if (lister->index >= count) lister->index = 0;
       } else if (command == Command_LISTER_MOVE_UP) {
-        add = -1;
+        lister->index--;
+        if (lister->index < 0) lister->index = count-1;
       }
-      lister->index = (lister->index + add) % sb_count(lister->items);
     } break;
     
     case Command_REMOVE_BACKWARD: {
@@ -98,22 +138,15 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       String file_name = lister->items[lister->index];
       String path = concat(const_string("src/"), file_name);
       
-      os_File file = os.open_file(path);
-      u64 file_size = os.get_file_size(file);
-      char *file_memory = alloc_array(char, file_size);
-      os.read_file(file, file_memory, 0, file_size);
-      os.close_file(file);
-      
-      String str = make_string(file_memory, file_size);
-      Buffer buffer = make_empty_buffer();
-      buffer_insert_string(&buffer, str);
-      set_cursor(&buffer, 0);
-      sb_push(editor->buffers, buffer);
-      Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
+      Buffer *buffer = get_existing_buffer(editor, path);
+      if (!buffer) {
+        buffer = open_file_into_new_buffer(os, editor, path);
+        buffer->file_name = alloc_string(file_name.data, file_name.count);
+      }
       
       panel->type = Panel_Type_BUFFER;
       panel->buffer_view = (Buffer_View){
-        .buffer = inserted,
+        .buffer = buffer,
       };
     } break;
   }
@@ -128,6 +161,11 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     profiler_event_capacity = os.profiler_event_capacity;
     profiler_event_count = os.profiler_event_count;
   }
+  
+  Context *_old_context = get_context();
+  Context ctx = *_old_context;
+  ctx.allocator = system_allocator;
+  push_context(ctx);
   
   if (!memory->initialized) {
     memory->initialized = true;
@@ -151,18 +189,9 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       editor->buffers = sb_new(Buffer, 16);
       editor->panels = sb_new(Panel, 16);
       
-      sb_push(editor->buffers, make_empty_buffer());
+      sb_push(editor->buffers, make_empty_buffer(editor));
       Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
       
-      os_File file = os.open_file(const_string("src/foo.c"));
-      u64 file_size = os.get_file_size(file);
-      char *file_memory = alloc_array(char, file_size);
-      os.read_file(file, file_memory, 0, file_size);
-      os.close_file(file);
-      
-      String str = make_string(file_memory, file_size);
-      buffer_insert_string(buffer, str);
-      set_cursor(buffer, 0);
       
       V2 ws = renderer->window_size;
       V2 bottom_left = v2(-0.5f, -0.5f);
@@ -240,6 +269,16 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                        .views = Panel_Type_BUFFER,
                        .command = Command_MOVE_CURSOR_DOWN,
                        .keycode = os_Keycode_ARROW_DOWN,
+                       }));
+    sb_push(keybinds, ((Keybind){
+                       .views = Panel_Type_BUFFER,
+                       .command = Command_MOVE_CURSOR_LINE_START,
+                       .keycode = os_Keycode_HOME,
+                       }));
+    sb_push(keybinds, ((Keybind){
+                       .views = Panel_Type_BUFFER,
+                       .command = Command_MOVE_CURSOR_LINE_END,
+                       .keycode = os_Keycode_END,
                        }));
     sb_push(keybinds, ((Keybind){
                        .views = Panel_Type_BUFFER,
@@ -395,7 +434,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         Lister *lister = &editor->current_dir_files;
         u32 file_count = sb_count(lister->items);
         
-        V2 pos = top_left;
+        V2 pos = v2(rect.min.x, rect.max.y);
         for (u32 i = 0; i < file_count; i++) {
           String file_name = lister->items[i];
           
@@ -465,5 +504,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     fclose(file);
   }
   
+  pop_context();
 }
 

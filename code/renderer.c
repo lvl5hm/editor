@@ -285,6 +285,8 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         
         bool cursor_rendered = false;
         
+        Syntax *buffer_colors = buffer->cache.colors;
+        
         for (i32 char_index_relative = 0;
              char_index_relative < buffer->count; // last symbol is 0
              char_index_relative++) 
@@ -295,7 +297,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
           i32 char_index = char_index_relative + added;
           char first = buffer->data[char_index] - font->first_codepoint;
           
-          u32 char_color = theme->colors[buffer->colors[char_index_relative]];
+          u32 char_color = theme->colors[buffer_colors[char_index_relative]];
           
           i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
           
