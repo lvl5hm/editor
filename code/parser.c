@@ -175,18 +175,28 @@ void buffer_tokenize(Parser *p) {
       
       case '0': case '1': case '2': case '3': case '4':
       case '5': case '6': case '7': case '8': case '9': {
-        eat();
-        while (is_digit(get(0))) eat();
-        
-        // float
-        if (get(0) == '.') {
+        if (get(0) == '0' && (
+          get(1) == 'x' || get(1) == 'X')) 
+        {
           eat();
-          //if (!is_digit((get0))) syntax_error("Unexpected symbol %c", *stream);
-          
-          while (is_digit(get(0))) eat();
-          end(T_FLOAT);
-        } else {
+          eat();
+          while (is_digit(get(0)) || is_alpha(get(0))) eat();
           end(T_INT);
+        } else {
+          eat();
+          while (is_digit(get(0))) eat();
+          
+          // float
+          if (get(0) == '.') {
+            eat();
+            //if (!is_digit((get0))) syntax_error("Unexpected symbol %c", *stream);
+            
+            while (is_digit(get(0))) eat();
+            if (get(0) == 'f') eat();
+            end(T_FLOAT);
+          } else {
+            end(T_INT);
+          }
         }
       } break;
       case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
@@ -282,6 +292,7 @@ void buffer_tokenize(Parser *p) {
         }
       } break;
       
+      case1('?', T_QUESTION);
       case1('\\', T_BACKSLASH);
       case1(',', T_COMMA);
       case1(';', T_SEMI);
@@ -324,7 +335,9 @@ Symbol *get_symbol_in_buffer(Buffer *buffer, String symbol_name) {
   Symbol **symbols = buffer->cache.visible_symbols;
   Symbol *result = null;
   
-  for (u32 i = 0; i < sb_count(symbols); i++) {
+  i32 symbol_count = (i32)sb_count(symbols);
+  
+  for (i32 i = symbol_count - 1; i >= 0; i--) {
     Symbol *s = symbols[i];
     if (string_compare(s->name, symbol_name)) {
       result = s;
@@ -348,12 +361,13 @@ Symbol *get_symbol_in_buffer(Buffer *buffer, String symbol_name) {
         if (string_compare(other->file_name, dep)) {
           result = get_symbol_in_buffer(other, symbol_name);
           if (result) {
-            break;
+            goto end;
           }
         }
       }
     }
   }
+  end:
   
   return result;
 }
@@ -402,7 +416,7 @@ void add_symbol(Parser *p, String name, Syntax type) {
 
 
 
-Token *parse_declarator(Parser *, bool);
+Token *parse_declarator(Parser *, bool, bool);
 bool parse_decl_specifier(Parser *);
 bool parse_decl(Parser *);
 bool parse_decl_specifier(Parser *);
@@ -411,6 +425,7 @@ void parse_any(Parser *);
 
 void parse_misc(Parser *p) {
   Token *t = peek_token(p, 0);
+  
   if (t->type == T_NAME) {
     Symbol *s = get_symbol(p, t);
     if (s) {
@@ -420,13 +435,20 @@ void parse_misc(Parser *p) {
         set_color(p, t, Syntax_MACRO);
       } else if (s->type == Syntax_ENUM_MEMBER) {
         set_color(p, t, Syntax_ENUM_MEMBER);
+      } else if (s->type == Syntax_ARG) {
+        set_color(p, t, Syntax_ARG);
       }
     }
   }
+  
   next_token(p);
+  
+  if (accept_token(p, T_DOT) || accept_token(p, T_ARROW)) {
+    next_token(p);
+  }
 }
 
-Token *parse_direct_declarator(Parser *p, bool is_typedef) {
+Token *parse_direct_declarator(Parser *p, bool is_typedef, bool is_arg) {
   Token *result = null;
   
   if (accept_token(p, T_NAME)) {
@@ -436,9 +458,12 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
       // token_to_string is scratch
       add_symbol(p, token_to_string(p->buffer, result), Syntax_TYPE);
       set_color(p, result, Syntax_TYPE);
+    } else if (is_arg) {
+      add_symbol(p, token_to_string(p->buffer, result), Syntax_ARG);
+      set_color(p, result, Syntax_ARG);
     }
   } else if (accept_token(p, T_LPAREN)) {
-    result = parse_declarator(p, is_typedef);
+    result = parse_declarator(p, is_typedef, is_arg);
     accept_token(p, T_RPAREN);
   }
   
@@ -458,7 +483,7 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
         break;
       }
       while (parse_decl_specifier(p));
-      parse_declarator(p, false);
+      parse_declarator(p, false, true);
     } while (accept_token(p, T_COMMA));
     
     if (accept_token(p, T_LCURLY)) {
@@ -473,13 +498,15 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef) {
   return result;
 }
 
-Token *parse_declarator(Parser *p, bool is_typedef) {
+Token *parse_declarator(Parser *p, bool is_typedef, bool is_arg) {
   accept_token(p, T_STAR);
-  return parse_direct_declarator(p, is_typedef);
+  return parse_direct_declarator(p, is_typedef, is_arg);
 } 
 
 
 bool parse_initializer(Parser *p) {
+  i32 foo = 43;
+  
   while (!accept_token(p, T_SEMI)) {
     parse_any(p);
   }
@@ -488,7 +515,7 @@ bool parse_initializer(Parser *p) {
 
 bool parse_init_declarator(Parser *p, bool is_typedef) {
   bool result = false;
-  if (parse_declarator(p, is_typedef)) {
+  if (parse_declarator(p, is_typedef, false)) {
     if (accept_token(p, T_ASSIGN)) {
       if (parse_initializer(p)) {
         result = true;
@@ -520,7 +547,7 @@ bool parse_struct_specifier(Parser *p) {
         if (parse_decl_specifier(p)) {
           while (parse_decl_specifier(p));
           do {
-            parse_declarator(p, false);
+            parse_declarator(p, false, false);
           } while (accept_token(p, T_COMMA));
           accept_token(p, T_SEMI);
         } else {

@@ -105,6 +105,36 @@ void set_cursor(Buffer *b, i32 pos) {
   }
 }
 
+void buffer_parse(Buffer *buffer) {
+  arena_set_mark(&buffer->cache.arena, 0);
+  push_arena_context(&buffer->cache.arena); {
+    Parser _parser = {
+      .scope_start_index = 0,
+      .token_index = 0,
+      .buffer = buffer,
+    };
+    
+    buffer->cache.dependencies = sb_new(String, 16);
+    buffer->cache.colors = sb_new(Syntax, buffer->count);
+    buffer->cache.symbols = sb_new(Symbol, 256);
+    buffer->cache.visible_symbols = sb_new(Symbol *, 64);
+    buffer->cache.tokens = sb_new(Token, 4096);
+    
+    Parser *parser = &_parser;
+    
+    buffer_tokenize(parser);
+    add_symbol(parser, const_string("char"), Syntax_TYPE);
+    add_symbol(parser, const_string("void"), Syntax_TYPE);
+    add_symbol(parser, const_string("short"), Syntax_TYPE);
+    add_symbol(parser, const_string("int"), Syntax_TYPE);
+    add_symbol(parser, const_string("long"), Syntax_TYPE);
+    add_symbol(parser, const_string("float"), Syntax_TYPE);
+    add_symbol(parser, const_string("double"), Syntax_TYPE);
+    parse_program(parser);
+  }
+  pop_context();
+}
+
 Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   // TODO(lvl5): store all cache in the arena
   push_scratch_context();
@@ -130,36 +160,6 @@ Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   
   pop_context();
   return dependents;
-}
-
-void buffer_parse(Buffer *buffer) {
-  arena_set_mark(&buffer->cache.arena, 0);
-  push_arena_context(&buffer->cache.arena); {
-    Parser _parser = {
-      .scope_start_index = 0,
-      .token_index = 0,
-      .buffer = buffer,
-    };
-    
-    buffer->cache.dependencies = sb_new(String, 16);
-    buffer->cache.colors = sb_new(Syntax, buffer->count);
-    buffer->cache.symbols = sb_new(Symbol, 256);
-    buffer->cache.visible_symbols = sb_new(Symbol *, 64);
-    buffer->cache.tokens = sb_new(Token, 2048);
-    
-    Parser *parser = &_parser;
-    
-    buffer_tokenize(parser);
-    add_symbol(parser, const_string("char"), Syntax_TYPE);
-    add_symbol(parser, const_string("void"), Syntax_TYPE);
-    add_symbol(parser, const_string("short"), Syntax_TYPE);
-    add_symbol(parser, const_string("int"), Syntax_TYPE);
-    add_symbol(parser, const_string("long"), Syntax_TYPE);
-    add_symbol(parser, const_string("float"), Syntax_TYPE);
-    add_symbol(parser, const_string("double"), Syntax_TYPE);
-    parse_program(parser);
-  }
-  pop_context();
 }
 
 void buffer_changed(Buffer *buffer) {

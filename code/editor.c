@@ -341,6 +341,20 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     monokai.colors[Syntax_ENUM_MEMBER] = monokai.colors[Syntax_STRING];
     editor->settings.theme = monokai;
     
+    
+    Lister *lister = &editor->current_dir_files;
+    lister->items = os.get_file_names(const_string("src"));
+    for (u32 i = 0; i < sb_count(lister->items); i++) {
+      String file_name = lister->items[i];
+      String path = concat(const_string("src/"), file_name);
+      
+      Buffer *buffer = get_existing_buffer(editor, file_name);
+      if (!buffer) {
+        buffer = open_file_into_new_buffer(os, editor, path);
+        buffer->file_name = alloc_string(file_name.data, file_name.count);
+      }
+    }
+    
     glEnable(GL_SCISSOR_TEST);
   }
   Editor *editor = &state->editor;
