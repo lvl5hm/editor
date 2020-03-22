@@ -26,9 +26,11 @@ b32 is_whitespace(char c) {
 
 
 void set_color(Parser *p, Token *t, Syntax color) {
+  begin_profiler_function();
   for (i32 i = t->start; i < t->end; i++) {
     p->buffer->cache.colors[i] = color;
   }
+  end_profiler_function();
 }
 
 void set_color_by_type(Parser *p, Token *t) {
@@ -49,6 +51,56 @@ void set_color_by_type(Parser *p, Token *t) {
 i32 get_gap_count(Buffer *);
 i32 get_gap_start(Buffer *);
 
+
+typedef struct {
+  String keys[128];
+  Syntax values[128];
+} Keyword_Map;
+
+Keyword_Map keyword_map;
+
+u32 hash_string(String key) {
+  u32 hash = 5381;
+  for (i32 i = 0; i < key.count; i++) {
+    hash = hash*33 ^ key.data[i];
+  }
+  
+  return hash;
+}
+
+u32 keyword_map_get_index(Keyword_Map *map, String name) {
+  u32 hash = hash_string(name);
+  u32 result = 0;
+  
+  while (true) {
+    hash = hash % array_count(map->keys);
+    String key = map->keys[hash];
+    
+    if (key.count == 0) {
+      result = hash;
+      break;
+    } else if (string_compare(key, name)) {
+      result = hash;
+      break;
+    } else {
+      hash++;
+    }
+  }
+  
+  return result;
+}
+
+
+Syntax get_keyword_type(String token_string) {
+  begin_profiler_function();
+  
+  u32 index = keyword_map_get_index(&keyword_map, token_string);
+  Syntax result = keyword_map.values[index];
+  
+  end_profiler_function();
+  return result;
+}
+
 void buffer_tokenize(Parser *p) {
   begin_profiler_function();
   Buffer *b = p->buffer;
@@ -58,38 +110,32 @@ void buffer_tokenize(Parser *p) {
   i32 gap_count = get_gap_count(b);
   i32 gap_start = get_gap_start(b);
   
-  i32 line = 1;
-  i32 col = 1;
-  i32 token_start = 0;
   
   Token t = {0};
   i32 i = 0;
   i32 add = 0;
   
+  
 #define get(index) b->data[i + index + add]
   
-#define next(n) { \
-    col += n; \
-    i += n; \
-    if (i >= gap_start) add = gap_count;\
+#define next() { \
+    if (i == gap_start) add = gap_count;\
+    i++; \
   }
-#define skip_syntax(n, syntax) { \
-    next(n); \
-    token_start += n; \
-    for (i32 i = token_start-n; i < token_start; i++) { \
-      p->buffer->cache.colors[i] = syntax; \
-    } \
+#define skip_syntax(syntax) { \
+    p->buffer->cache.colors[i] = syntax; \
+    next(); \
+    t.start++; \
   }
 #define eat() { \
-    next(1); \
+    next(); \
   }
 #define end_no_continue(tok_type) { \
     t.type = tok_type; \
-    t.start = token_start; \
     t.end = i; \
     set_color_by_type(p, &t); \
-    token_start = i; \
     sb_push(tokens, t); \
+    t = (Token){ .start = i }; \
   }
 #define end(tok_type) end_no_continue(tok_type); continue;
   
@@ -123,21 +169,23 @@ void buffer_tokenize(Parser *p) {
   } break;
   
   while (true) {
+    while (get(0) == ' ' || get(0) == '\n' || get(0) == '\r') {
+      skip_syntax(Syntax_DEFAULT);
+    }
+    
     switch (get(0)) {
       case 0: {
         goto end;
       } break;
       
       case '\r': {
-        skip_syntax(1, Syntax_DEFAULT);
+        skip_syntax(Syntax_DEFAULT);
       } break;
       case ' ': {
-        skip_syntax(1, Syntax_DEFAULT);
+        skip_syntax(Syntax_DEFAULT);
       } break;
       case '\n': {
-        line++;
-        col = 1;
-        skip_syntax(1, Syntax_DEFAULT);
+        skip_syntax(Syntax_DEFAULT);
       } break;
       case '"': {
         eat();
@@ -222,33 +270,11 @@ void buffer_tokenize(Parser *p) {
         while (is_digit(get(0)) || is_alpha(get(0))) eat();
         
         
-        String token_string = {0};
-        i32 count = i - token_start;
-        Token_Type type = T_NONE;
-        i32 result = 0;
-        {
-          for (i32 j = T_KEYWORD_FIRST; j <= T_KEYWORD_LAST; j++) {
-            String keyword_string = Token_Kind_To_String[j];
-            if ((i32)keyword_string.count == count) {
-              if (token_string.count == 0) {
-                token_string = buffer_part_to_string(b, token_start, i);
-              }
-              if (string_compare(keyword_string, token_string)) {
-                type = j;
-                break;
-              }
-            }
-          }
-        }
+        String token_string = buffer_part_to_string(b, t.start, i);
+        Syntax type = get_keyword_type(token_string);
         
         if (type) {
-          t.type = type;
-          t.start = token_start;
-          t.end = i;
-          set_color(p, &t, Syntax_KEYWORD);
-          token_start = i; 
-          sb_push(tokens, t); 
-          continue;
+          end(type);
         } else {
           end(T_NAME);
         }
@@ -256,20 +282,23 @@ void buffer_tokenize(Parser *p) {
       
       case '/': {
         if (get(1) == '/') {
-          skip_syntax(2, Syntax_COMMENT);
+          skip_syntax(Syntax_COMMENT);
+          skip_syntax(Syntax_COMMENT);
           while (get(0) != '\n') {
-            skip_syntax(1, Syntax_COMMENT);
+            skip_syntax(Syntax_COMMENT);
           }
         } else if (get(1) == '*') {
-          skip_syntax(2, Syntax_COMMENT);
+          skip_syntax(Syntax_COMMENT);
+          skip_syntax(Syntax_COMMENT);
           while (!(get(0) == '*' && get(1) == '/')) {
             if (get(0) == '\0') {
               goto end;
             } else {
-              skip_syntax(1, Syntax_COMMENT);
+              skip_syntax(Syntax_COMMENT);
             }
           }
-          skip_syntax(2, Syntax_COMMENT);
+          skip_syntax(Syntax_COMMENT);
+          skip_syntax(Syntax_COMMENT);
         } else {
           eat();
           if (get(0) == '=') {
@@ -285,18 +314,19 @@ void buffer_tokenize(Parser *p) {
         while (is_digit(get(0)) || is_alpha(get(0))) eat();
         end_no_continue(T_POUND);
         
-        i32 j = 0;
-        while (get(j) == ' ') {
-          skip_syntax(1, T_DEFAULT);
+        while (get(0) == ' ') {
+          skip_syntax(Syntax_DEFAULT);
         }
         
-        if (get(j) == '<') {
-          skip_syntax(j, T_DEFAULT);
+        i32 saved = i;
+        if (get(0) == '<') {
           while (get(0) != '>') {
             eat();
           }
           eat();
           end(T_STRING);
+        } else {
+          i = saved;
         }
       } break;
       
@@ -339,15 +369,6 @@ void buffer_tokenize(Parser *p) {
   end_profiler_function();
 }
 
-
-u32 hash_string(String key) {
-  u32 hash = 5381;
-  for (i32 i = 0; i < key.count; i++) {
-    hash = hash*33 ^ key.data[i];
-  }
-  
-  return hash;
-}
 
 u32 scope_get_index(Scope *scope, String name) {
   u32 hash = hash_string(name);

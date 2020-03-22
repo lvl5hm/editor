@@ -186,7 +186,6 @@ String Token_Kind_To_String[] = {
 
 
 enum {
-  Syntax_NONE,
   Syntax_DEFAULT,
   Syntax_BACKGROUND,
   Syntax_COMMENT,

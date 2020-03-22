@@ -170,6 +170,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     profiler_events = os.profiler_events;
     profiler_event_capacity = os.profiler_event_capacity;
     profiler_event_count = os.profiler_event_count;
+    global_os = os;
   }
   
   profiler_event_count = 0;
@@ -371,6 +372,13 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     monokai.colors[Syntax_ENUM_MEMBER] = monokai.colors[Syntax_STRING];
     editor->settings.theme = monokai;
     
+    
+    for (Token_Type i = T_KEYWORD_FIRST; i < T_KEYWORD_LAST; i++) {
+      String key = Token_Kind_To_String[i];
+      u32 index = keyword_map_get_index(&keyword_map, key);
+      keyword_map.keys[index] = key;
+      keyword_map.values[index] = i;
+    }
     
     Lister *lister = &editor->current_dir_files;
     lister->items = os.get_file_names(const_string("src"));

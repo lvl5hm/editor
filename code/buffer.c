@@ -167,15 +167,33 @@ Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   return dependents;
 }
 
+#include <time.h>
+
 void buffer_changed(Buffer *buffer) {
   begin_profiler_function();
   
   bool not_scratch = get_context()->allocator == system_allocator;
   assert(not_scratch);
   
+  
   Scope *global_scope = buffer->editor->global_scope;
+  memset(global_scope->keys, 0, sizeof(String)*global_scope->capacity);
   // TODO(lvl5): need to clear out all the symbols that were
   // inserted into the scope from this buffer
+  
+  clock_t start = clock();
+  
+  for (u32 i = 0; i < sb_count(buffer->editor->buffers); i++) {
+    Buffer *b = buffer->editor->buffers + i;
+    buffer_parse(b);
+  }
+  
+  clock_t end = clock();
+  f64 seconds = (f64)(end - start) / (f64)CLOCKS_PER_SEC;
+  char buf[256];
+  sprintf_s(buf, 256,  "elapsed: %f\n", seconds);
+  global_os.debug_pring(buf);
+#if 0  
   
   buffer_parse(buffer);
   Buffer **dependents = buffer_get_dependent_buffers(buffer);
@@ -183,6 +201,7 @@ void buffer_changed(Buffer *buffer) {
     Buffer *dep = dependents[i];
     buffer_changed(dep);
   }
+#endif
   
   end_profiler_function();
 }
@@ -250,7 +269,7 @@ Buffer make_empty_buffer(Editor *editor) {
   
   bool not_scratch = get_context()->allocator == system_allocator;
   assert(not_scratch);
-  Mem_Size arena_size = megabytes(2);
+  Mem_Size arena_size = megabytes(4);
   arena_init(&b.cache.arena, alloc_array(byte, arena_size), arena_size);
   
   buffer_insert_string(&b, const_string("\0"));

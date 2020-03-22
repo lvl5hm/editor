@@ -32,6 +32,7 @@ void add_profiler_event(char *name, Profiler_Event_Type type) {
   }
 }
 
+
 #define begin_profiler_function() add_profiler_event(__FUNCTION__, Profiler_Event_Type_BEGIN)
 
 
@@ -78,6 +79,7 @@ typedef struct {
   Mem_Size size;
 } Editor_Memory;
 
+Os global_os;
 
 #define EDITOR_COMMON_H
 #endif
