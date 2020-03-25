@@ -48,23 +48,6 @@ Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path)
   return inserted;
 }
 
-Buffer *get_existing_buffer(Editor *editor, String file_name) {
-  begin_profiler_function();
-  Buffer *result = null;
-  for (u32 buffer_index = 0; 
-       buffer_index < sb_count(editor->buffers);
-       buffer_index++) 
-  {
-    Buffer *b = editor->buffers + buffer_index;
-    if (string_compare(b->file_name, file_name)) {
-      result = b;
-      break;
-    }
-  }
-  end_profiler_function();
-  return result;
-}
-
 void execute_command(Os os, Editor *editor, Renderer *renderer, Command command) {
   begin_profiler_function();
   Font *font = renderer->state.font;
@@ -202,19 +185,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     Editor *editor = &state->editor;
-    editor->global_scope = add_scope(null, 20000);
-    add_symbol(editor->global_scope, const_string("char"), Syntax_TYPE);
-    add_symbol(editor->global_scope, const_string("void"), Syntax_TYPE);
-    add_symbol(editor->global_scope, const_string("short"), Syntax_TYPE);
-    add_symbol(editor->global_scope, const_string("int"), Syntax_TYPE);
-    add_symbol(editor->global_scope, const_string("long"), Syntax_TYPE);
-    add_symbol(editor->global_scope, const_string("float"), Syntax_TYPE);
-    add_symbol(editor->global_scope, const_string("double"), Syntax_TYPE);
-    
-    {
-      Symbol *symbol = get_symbol_in_scope(editor->global_scope, const_string("char"));
-      assert(symbol->type == Syntax_TYPE);
-    }
     
     {
       editor->buffers = sb_new(Buffer, 16);
@@ -373,7 +343,13 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     editor->settings.theme = monokai;
     
     
-    for (Token_Type i = T_KEYWORD_FIRST; i < T_KEYWORD_LAST; i++) {
+    for (Token_Type i = T_KEYWORD_FIRST; i <= T_KEYWORD_LAST; i++) {
+      String key = Token_Kind_To_String[i];
+      u32 index = keyword_map_get_index(&keyword_map, key);
+      keyword_map.keys[index] = key;
+      keyword_map.values[index] = i;
+    }
+    for (Token_Type i = T_TYPE_FIRST; i <= T_TYPE_LAST; i++) {
       String key = Token_Kind_To_String[i];
       u32 index = keyword_map_get_index(&keyword_map, key);
       keyword_map.keys[index] = key;

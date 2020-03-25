@@ -6,7 +6,6 @@ typedef enum {
   
   T_TYPEDEF,
   T_KEYWORD_FIRST = T_TYPEDEF,
-  T_POUND,
   T_IF,
   T_FOR,
   T_WHILE,
@@ -35,8 +34,18 @@ typedef enum {
   T_CONTINUE,
   T_KEYWORD_LAST = T_CONTINUE,
   
+  T_CHAR,
+  T_TYPE_FIRST = T_CHAR,
+  T_SHORT,
+  T_INT,
+  T_LONG,
+  T_FLOAT,
+  T_DOUBLE,
+  T_VOID,
+  T_TYPE_LAST = T_VOID,
   
   
+  T_POUND,
   T_LPAREN,
   T_RPAREN,
   T_LBRACKET,
@@ -93,15 +102,26 @@ typedef enum {
   T_OPERATOR_LAST = T_ASSIGN_BIT_XOR,
   
   T_NAME,
-  T_INT,
-  T_FLOAT,
-  T_STRING,
-  T_CHAR,
+  T_INT_LITERAL,
+  T_FLOAT_LITERAL,
+  T_STRING_LITERAL,
+  T_CHAR_LITERAL,
+  
+  T_END_OF_FILE,
 } Token_Type;
 
 #define arr_string(chars) {chars, array_count(chars)-1}
 
 String Token_Kind_To_String[] = {
+  [T_CHAR] = arr_string("char"),
+  [T_SHORT] = arr_string("short"),
+  [T_INT] = arr_string("int"),
+  [T_LONG] = arr_string("long"),
+  [T_FLOAT] = arr_string("float"),
+  [T_DOUBLE] = arr_string("double"),
+  [T_VOID] = arr_string("void"),
+  
+  
   [T_SIGNED] = arr_string("signed"),
   [T_UNSIGNED] = arr_string("unsigned"),
   [T_UNION] = arr_string("union"),
@@ -111,6 +131,7 @@ String Token_Kind_To_String[] = {
   [T_CONST] = arr_string("const"),
   [T_VOLATILE] = arr_string("volatile"),
   
+  [T_DO] = arr_string("do"),
   [T_INLINE] = arr_string("inline"),
   [T_STATIC] = arr_string("static"),
   [T_RETURN] = arr_string("return"),
@@ -129,9 +150,9 @@ String Token_Kind_To_String[] = {
   
   [T_NONE] = arr_string("NONE"),
   [T_NAME] = arr_string("NAME"),
-  [T_INT] = arr_string("INT"),
-  [T_CHAR] = arr_string("CHAR"),
-  [T_FLOAT] = arr_string("FLOAT"),
+  [T_INT_LITERAL] = arr_string("INT"),
+  [T_CHAR_LITERAL] = arr_string("CHAR"),
+  [T_FLOAT_LITERAL] = arr_string("FLOAT"),
   [T_LPAREN] = arr_string("("),
   [T_RPAREN] = arr_string(")"),
   [T_LBRACKET] = arr_string("["),
@@ -169,7 +190,6 @@ String Token_Kind_To_String[] = {
   [T_OR] = arr_string("||"),
   [T_AND] = arr_string("&&"),
   [T_QUESTION] = arr_string("?"),
-  [T_POUND] = arr_string("#"),
   [T_BACKSLASH] = arr_string("\\"),
   [T_COLON] = arr_string(":"),
   
@@ -240,6 +260,7 @@ typedef struct Scope Scope;
 typedef struct Scope {
   String *keys;
   Symbol *values;
+  bool *occupancy;
   u32 count;
   u32 capacity;
   

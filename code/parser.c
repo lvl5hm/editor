@@ -40,10 +40,12 @@ void set_color_by_type(Parser *p, Token *t) {
     syntax = Syntax_KEYWORD;
   } else if (t->type >= T_OPERATOR_FIRST && t->type <= T_OPERATOR_LAST) {
     syntax = Syntax_OPERATOR;
-  } else if (t->type == T_INT || t->type == T_FLOAT) {
+  } else if (t->type == T_INT_LITERAL || t->type == T_FLOAT_LITERAL) {
     syntax = Syntax_NUMBER;
-  } else if (t->type == T_STRING || t->type == T_CHAR) {
+  } else if (t->type == T_STRING_LITERAL || t->type == T_CHAR_LITERAL) {
     syntax = Syntax_STRING;
+  } else if (t->type >= T_TYPE_FIRST && t->type <= T_TYPE_LAST) {
+    syntax = Syntax_TYPE;
   }
   set_color(p, t, syntax);
 }
@@ -91,7 +93,7 @@ u32 keyword_map_get_index(Keyword_Map *map, String name) {
 }
 
 
-Syntax get_keyword_type(String token_string) {
+Token_Type get_keyword_type(String token_string) {
   begin_profiler_function();
   
   u32 index = keyword_map_get_index(&keyword_map, token_string);
@@ -115,12 +117,16 @@ void buffer_tokenize(Parser *p) {
   i32 i = 0;
   i32 add = 0;
   
+  if (i == gap_start) {
+    add = gap_count;
+  }
+  
   
 #define get(index) b->data[i + index + add]
   
 #define next() { \
-    if (i == gap_start) add = gap_count;\
     i++; \
+    if (i == gap_start) add = gap_count;\
   }
 #define skip_syntax(syntax) { \
     p->buffer->cache.colors[i] = syntax; \
@@ -205,7 +211,7 @@ void buffer_tokenize(Parser *p) {
           }
         }
         eat();
-        end(T_STRING);
+        end(T_STRING_LITERAL);
       } break;
       case '\'': {
         eat();
@@ -226,7 +232,7 @@ void buffer_tokenize(Parser *p) {
           }
         }
         eat();
-        end(T_CHAR);
+        end(T_CHAR_LITERAL);
       } break;
       
       case '0': case '1': case '2': case '3': case '4':
@@ -237,7 +243,8 @@ void buffer_tokenize(Parser *p) {
           eat();
           eat();
           while (is_digit(get(0)) || is_alpha(get(0))) eat();
-          end(T_INT);
+          
+          end(T_INT_LITERAL);
         } else {
           eat();
           while (is_digit(get(0))) eat();
@@ -249,9 +256,11 @@ void buffer_tokenize(Parser *p) {
             
             while (is_digit(get(0))) eat();
             if (get(0) == 'f') eat();
-            end(T_FLOAT);
+            end(T_FLOAT_LITERAL);
           } else {
-            end(T_INT);
+            if (get(0) == 'L') eat();
+            if (get(0) == 'L') eat();
+            end(T_INT_LITERAL);
           }
         }
       } break;
@@ -271,7 +280,7 @@ void buffer_tokenize(Parser *p) {
         
         
         String token_string = buffer_part_to_string(b, t.start, i);
-        Syntax type = get_keyword_type(token_string);
+        Token_Type type = get_keyword_type(token_string);
         
         if (type) {
           end(type);
@@ -324,7 +333,7 @@ void buffer_tokenize(Parser *p) {
             eat();
           }
           eat();
-          end(T_STRING);
+          end(T_STRING_LITERAL);
         } else {
           i = saved;
         }
@@ -366,6 +375,9 @@ void buffer_tokenize(Parser *p) {
   
   end:
   
+  b->cache.colors[b->count-1] = Syntax_DEFAULT;
+  end_no_continue(T_END_OF_FILE);
+  
   end_profiler_function();
 }
 
@@ -378,7 +390,7 @@ u32 scope_get_index(Scope *scope, String name) {
     hash = hash % scope->capacity;
     String key = scope->keys[hash];
     
-    if (key.count == 0) {
+    if (!scope->occupancy[hash]) {
       result = hash;
       break;
     } else if (string_compare(key, name)) {
@@ -392,31 +404,37 @@ u32 scope_get_index(Scope *scope, String name) {
   return result;
 }
 
+void scope_insert_symbol(Scope *scope, String name, Symbol s) {
+  i32 symbol_index = scope_get_index(scope, name);
+  scope->keys[symbol_index] = s.name;
+  scope->values[symbol_index] = s;
+  scope->occupancy[symbol_index] = true;
+  scope->count++;
+  assert(scope->count <= scope->capacity);
+}
+
 void add_symbol(Scope *scope, String name, Syntax type) {
   begin_profiler_function();
   
   Symbol s = (Symbol){ .type = type };
   s.name = make_string(alloc_array(char, name.count), name.count);
   copy_memory_slow(s.name.data, name.data, name.count);
-  
-  i32 symbol_index = scope_get_index(scope, name);
-  scope->keys[symbol_index] = s.name;
-  scope->values[symbol_index] = s;
-  scope->count++;
-  assert(scope->count <= scope->capacity);
+  scope_insert_symbol(scope, name, s);
   
   end_profiler_function();
 }
 
+void add_symbol_buffer(Parser *p, String name, Syntax type) {
+  add_symbol(p->scope, name, type);
+}
 
 Symbol *get_symbol_in_scope(Scope *scope, String symbol_name) {
   begin_profiler_function();
   
-  i32 index = scope_get_index(scope, symbol_name);
-  String key = scope->keys[index];
+  u32 index = scope_get_index(scope, symbol_name);
   Symbol *result = null;
   
-  if (key.count == 0) {
+  if (!scope->occupancy[index]) {
     if (scope->parent) {
       result = get_symbol_in_scope(scope->parent, symbol_name);
     }
@@ -438,9 +456,10 @@ Scope *add_scope(Scope *parent, u32 capacity) {
     .count = 0,
     .keys = alloc_array(String, capacity),
     .values = alloc_array(Symbol, capacity),
+    .occupancy = alloc_array(bool, capacity),
   };
   
-  memset(result->keys, 0, sizeof(String)*capacity);
+  memset(result->occupancy, 0, sizeof(bool)*capacity);
   
   end_profiler_function();
   return result;
@@ -492,10 +511,10 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef, bool is_arg) {
     
     if (is_typedef) {
       // token_to_string is scratch
-      add_symbol(p->scope, token_to_string(p->buffer, result), Syntax_TYPE);
+      add_symbol_buffer(p, token_to_string(p->buffer, result), Syntax_TYPE);
       set_color(p, result, Syntax_TYPE);
     } else if (is_arg) {
-      add_symbol(p->scope, token_to_string(p->buffer, result), Syntax_ARG);
+      add_symbol_buffer(p, token_to_string(p->buffer, result), Syntax_ARG);
       set_color(p, result, Syntax_ARG);
     }
   } else if (accept_token(p, T_LPAREN)) {
@@ -510,10 +529,11 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef, bool is_arg) {
   } else if (accept_token(p, T_LPAREN)) {
     // function decl
     if (!is_typedef) {
-      add_symbol(p->scope, token_to_string(p->buffer, result), Syntax_FUNCTION);
+      add_symbol_buffer(p, token_to_string(p->buffer, result), Syntax_FUNCTION);
       set_color(p, result, Syntax_FUNCTION);
     }
     
+    p->scope = add_scope(p->scope, 32);
     do {
       if (accept_token(p, T_RPAREN)) {
         break;
@@ -523,12 +543,11 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef, bool is_arg) {
     } while (accept_token(p, T_COMMA));
     
     if (accept_token(p, T_LCURLY)) {
-      p->scope = add_scope(p->scope, 32);
       while (!accept_token(p, T_RCURLY)) {
         parse_any(p);
       }
-      p->scope = p->scope->parent;
     }
+    p->scope = p->scope->parent;
   }
   
   end_profiler_function();
@@ -543,7 +562,8 @@ Token *parse_declarator(Parser *p, bool is_typedef, bool is_arg) {
 
 bool parse_initializer(Parser *p) {
   begin_profiler_function();
-  while (!accept_token(p, T_SEMI)) {
+  while (!accept_token(p, T_SEMI) && p->token_index < (i32)sb_count(p->buffer->cache.tokens)) 
+  {
     parse_any(p);
   }
   end_profiler_function();
@@ -576,7 +596,7 @@ bool parse_struct_specifier(Parser *p) {
       Token *struct_name = peek_token(p, -1);
       set_color(p, struct_name, Syntax_TYPE);
       // token_to_string is scratch
-      add_symbol(p->scope, token_to_string(p->buffer, struct_name), Syntax_TYPE);
+      add_symbol_buffer(p, token_to_string(p->buffer, struct_name), Syntax_TYPE);
       has_name = true;
     }
     
@@ -629,7 +649,7 @@ bool parse_enum_specifier(Parser *p) {
       Token *struct_name = peek_token(p, -1);
       set_color(p, struct_name, Syntax_TYPE);
       // token_to_string is scratch
-      add_symbol(p->scope, token_to_string(p->buffer, struct_name), Syntax_TYPE);
+      add_symbol_buffer(p, token_to_string(p->buffer, struct_name), Syntax_TYPE);
       has_name = true;
     }
     
@@ -640,7 +660,7 @@ bool parse_enum_specifier(Parser *p) {
         if (accept_token(p, T_NAME)) {
           Token *name = peek_token(p, -1);
           set_color(p, name, Syntax_ENUM_MEMBER);
-          add_symbol(p->scope, token_to_string(p->buffer, name), Syntax_ENUM_MEMBER);
+          add_symbol_buffer(p, token_to_string(p->buffer, name), Syntax_ENUM_MEMBER);
           if (accept_token(p, T_ASSIGN)) {
             while (!accept_token(p, T_COMMA)) {
               next_token(p);
@@ -664,6 +684,14 @@ bool parse_enum_specifier(Parser *p) {
 bool parse_decl_specifier(Parser *p) {
   Token *t = peek_token(p, 0);
   switch (t->type) {
+    case T_CHAR:
+    case T_SHORT:
+    case T_INT:
+    case T_LONG:
+    case T_FLOAT:
+    case T_DOUBLE:
+    case T_VOID:
+    
     case T_STATIC:
     case T_TYPEDEF:
     case T_EXTERN:
@@ -721,10 +749,36 @@ bool parse_decl(Parser *p) {
 }
 
 
+Buffer *get_existing_buffer(Editor *editor, String file_name) {
+  begin_profiler_function();
+  Buffer *result = null;
+  for (u32 buffer_index = 0; 
+       buffer_index < sb_count(editor->buffers);
+       buffer_index++) 
+  {
+    Buffer *b = editor->buffers + buffer_index;
+    if (string_compare(b->file_name, file_name)) {
+      result = b;
+      break;
+    }
+  }
+  end_profiler_function();
+  return result;
+}
+
+
 void parse_any(Parser *p) {
   begin_profiler_function();
   Token *t = peek_token(p, 0);
   switch (t->type) {
+    case T_CHAR:
+    case T_SHORT:
+    case T_INT:
+    case T_LONG:
+    case T_FLOAT:
+    case T_DOUBLE:
+    case T_VOID:
+    
     case T_STATIC:
     case T_TYPEDEF:
     case T_EXTERN:
@@ -819,15 +873,39 @@ void parse_any(Parser *p) {
         next_token(p);
         Token *macro = peek_token(p, 0);
         set_color(p, macro, Syntax_MACRO);
-        add_symbol(p->scope, token_to_string(p->buffer, macro), Syntax_MACRO);
+        add_symbol_buffer(p, token_to_string(p->buffer, macro), Syntax_MACRO);
         next_token(p);
       } else if (string_compare(token_string, const_string("#include"))) {
         next_token(p);
+        
         Token *dependency = peek_token(p, 0);
-        String dep_string = token_to_string(p->buffer, dependency);
-        sb_push(p->buffer->cache.dependencies, 
-                alloc_string(dep_string.data + 1,
-                             dep_string.count - 2));
+        if (accept_token(p, T_STRING_LITERAL)) {
+          String dep_string = token_to_string(p->buffer, dependency);
+          if (dep_string.count >= 2) {
+            // trimming the quotes
+            dep_string.data++;
+            dep_string.count -= 2;
+            
+            sb_push(p->buffer->cache.dependencies, 
+                    alloc_string(dep_string.data, dep_string.count));
+            
+            Buffer *dep_buffer = get_existing_buffer(p->buffer->editor, 
+                                                     dep_string);
+            if (dep_buffer) {
+              Scope *dep_scope = dep_buffer->cache.scope;
+              for (u32 symbol_index = 0;
+                   symbol_index < dep_scope->capacity;
+                   symbol_index++)
+              {
+                if (dep_scope->occupancy[symbol_index]) {
+                  String key = dep_scope->keys[symbol_index];
+                  Symbol value = dep_scope->values[symbol_index];
+                  scope_insert_symbol(p->scope, key, value);
+                }
+              }
+            }
+          }
+        }
       } else {
         next_token(p);
       }
@@ -843,6 +921,10 @@ void parse_any(Parser *p) {
 void parse_program(Parser *p) {
   begin_profiler_function();
   while (p->token_index < (i32)sb_count(p->buffer->cache.tokens)) {
+    String s = token_to_string(p->buffer, p->buffer->cache.tokens + p->token_index);
+    if (string_compare(s, const_string("m4"))) {
+      int fds = 43;
+    }
     parse_any(p);
   }
   end_profiler_function();

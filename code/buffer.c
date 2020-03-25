@@ -117,15 +117,17 @@ void buffer_parse(Buffer *buffer) {
   
   arena_set_mark(&buffer->cache.arena, 0);
   push_arena_context(&buffer->cache.arena); {
-    Parser _parser = {
-      .token_index = 0,
-      .buffer = buffer,
-      .scope = buffer->editor->global_scope,
-    };
-    
+    buffer->cache.scope = add_scope(null, 1024);
     buffer->cache.dependencies = sb_new(String, 16);
     buffer->cache.colors = sb_new(Syntax, buffer->count);
     buffer->cache.tokens = sb_new(Token, 4096);
+    
+    Parser _parser = {
+      .token_index = 0,
+      .buffer = buffer,
+      .scope = buffer->cache.scope,
+    };
+    
     
     Parser *parser = &_parser;
     
@@ -139,7 +141,6 @@ void buffer_parse(Buffer *buffer) {
 
 Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   begin_profiler_function();
-  // TODO(lvl5): store all cache in the arena
   push_scratch_context();
   Buffer **dependents = sb_new(Buffer **, 16);
   
@@ -167,7 +168,6 @@ Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   return dependents;
 }
 
-#include <time.h>
 
 void buffer_changed(Buffer *buffer) {
   begin_profiler_function();
@@ -175,33 +175,13 @@ void buffer_changed(Buffer *buffer) {
   bool not_scratch = get_context()->allocator == system_allocator;
   assert(not_scratch);
   
-  
-  Scope *global_scope = buffer->editor->global_scope;
-  memset(global_scope->keys, 0, sizeof(String)*global_scope->capacity);
-  // TODO(lvl5): need to clear out all the symbols that were
-  // inserted into the scope from this buffer
-  
-  clock_t start = clock();
-  
-  for (u32 i = 0; i < sb_count(buffer->editor->buffers); i++) {
-    Buffer *b = buffer->editor->buffers + i;
-    buffer_parse(b);
-  }
-  
-  clock_t end = clock();
-  f64 seconds = (f64)(end - start) / (f64)CLOCKS_PER_SEC;
-  char buf[256];
-  sprintf_s(buf, 256,  "elapsed: %f\n", seconds);
-  global_os.debug_pring(buf);
-#if 0  
-  
   buffer_parse(buffer);
+  
   Buffer **dependents = buffer_get_dependent_buffers(buffer);
   for (u32 i = 0; i < sb_count(dependents); i++) {
     Buffer *dep = dependents[i];
     buffer_changed(dep);
   }
-#endif
   
   end_profiler_function();
 }
@@ -534,112 +514,3 @@ void buffer_input_string(Buffer *buffer, String str) {
     buffer_insert_string(buffer, str);
   }
 }
-
-#if 0
-void buffer_draw(Renderer *renderer, Buffer *buffer, 
-                 Rect2 rect, Color_Theme theme, V2 scroll) {
-  begin_profiler_event("buffer_draw");
-  
-  Font *font = renderer->state.font;
-  i8 line_spacing = font->line_spacing;
-  
-  f32 header_height = (f32)line_spacing*1.5f;
-  
-  // skip the header
-  rect.max.y -= header_height;
-  V2 rect_size = rect2_get_size(rect);
-  
-  i32 first_visible_line = (i32)scroll.y;
-  i32 height_lines = (i32)(rect_size.y / line_spacing);
-  
-  
-  i32 first_visible_token = 0;
-  i32 skipped_lines = 0;
-  
-  
-  Token *tokens = buffer->tokens;
-  
-  begin_profiler_event("render");
-  while (skipped_lines < first_visible_line) {
-    Token *t = tokens + first_visible_token++;
-    if (t->kind == T_NEWLINE) {
-      skipped_lines++;
-    }
-  }
-  
-  
-  V2 offset = v2(rect.min.x, 
-                 rect.max.y - (skipped_lines - scroll.y)*line_spacing);
-  
-  i32 line_index = 0;
-  
-  i32 token_count = (i32)sb_count(tokens);
-  for (i32 token_index = first_visible_token;
-       token_index < token_count;
-       token_index++) 
-  {
-    Token *t = tokens + token_index;
-    
-    if (t->kind == T_NEWLINE) {
-      offset.x = rect.min.x;
-      offset.y -= line_spacing;
-      line_index++;
-      if (line_index > height_lines) {
-        break;
-      }
-    } else {
-      u32 color = theme.colors[Syntax_DEFAULT];
-      
-      if (t->ast_kind == A_ARGUMENT) {
-        color = theme.colors[Syntax_ARG];
-      } else if (t->ast_kind == A_FUNCTION) {
-        color = theme.colors[Syntax_FUNCTION];
-      } else if (t->ast_kind == A_TYPE) {
-        color = theme.colors[Syntax_TYPE];
-      }else if ((t->kind >= T_KEYWORD_FIRST && 
-                 t->kind <= T_KEYWORD_LAST) ||
-                (t->kind >= T_OPERATOR_FIRST && 
-                 t->kind <= T_OPERATOR_LAST)) 
-      {
-        color = theme.colors[Syntax_KEYWORD];
-      } else if (t->ast_kind == A_MACRO || 
-                 t->kind == T_INT || 
-                 t->kind == T_FLOAT) 
-      {
-        color = theme.colors[Syntax_NUMBER];
-      } else if (t->kind == T_STRING ||
-                 t->kind == T_CHAR ||
-                 t->ast_kind == A_ENUM_MEMBER) {
-        color = theme.colors[Syntax_STRING];
-      } else if (t->kind == T_COMMENT) {
-        color = theme.colors[Syntax_COMMENT];
-      }
-      
-      V4 color_float = color_u32_to_v4(color);
-      
-      bool scared = t->start <= buffer->cursor && t->start+t->count > buffer->cursor;
-      
-      String token_string = buffer_part_to_string(buffer, 
-                                                  t->start, 
-                                                  t->start + t->count);
-      draw_string(renderer, token_string, offset, color_float);
-      offset.x += measure_string_width(renderer, token_string);
-    }
-  }
-  
-  {
-    rect.max.y += header_height;
-    // draw header
-    V2 header_p = v2(rect.min.x, rect.max.y - header_height);
-    draw_rect(renderer, rect2_min_max(header_p,
-                                      rect.max), color_u32_to_v4(theme.colors[Syntax_COMMENT]));
-    
-    V2 title_p = v2(rect.min.x, rect.max.y - line_spacing*0.3f);
-    draw_string(renderer, buffer->file_name, title_p, v4(0, 0, 0, 1));
-  }
-  
-  end_profiler_event("render");
-  
-  end_profiler_event("buffer_draw");
-}
-#endif

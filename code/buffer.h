@@ -25,6 +25,7 @@ typedef struct Buffer {
   
   Editor *editor;
   struct {
+    Scope *scope;
     Arena arena;
     String *dependencies;
     Syntax *colors;

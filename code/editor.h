@@ -91,7 +91,6 @@ typedef struct Editor {
   Lister current_dir_files;
   Settings settings;
   Exchange exchange;
-  Scope *global_scope;
 } Editor;
 
 #include "renderer.h"

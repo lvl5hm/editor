@@ -7,7 +7,6 @@ typedef enum {
   Alloc_Op_NONE,
   Alloc_Op_ALLOC,
   Alloc_Op_FREE,
-  Alloc_Op_REALLOC,
   Alloc_Op_FREE_ALL,
 } Alloc_Op;
 
@@ -64,10 +63,6 @@ ALLOCATOR(arena_allocator) {
       result = _arena_push_memory(arena, size, align);
     } break;
     
-    case Alloc_Op_REALLOC: {
-      result = _arena_push_memory(arena, size, align);
-    } break;
-    
     case Alloc_Op_FREE_ALL: {
       arena->size = 0;
     } break;
@@ -93,8 +88,6 @@ ALLOCATOR(scratch_allocator) {
     case Alloc_Op_FREE: {
     } break;
     
-    case Alloc_Op_REALLOC: {
-    } break;
     
     invalid_default_case;
   }
@@ -151,10 +144,6 @@ ALLOCATOR(system_allocator) {
     
     case Alloc_Op_FREE: {
       free(old_ptr);
-    } break;
-    
-    case Alloc_Op_REALLOC: {
-      result = realloc(old_ptr, size);
     } break;
     
     invalid_default_case;
