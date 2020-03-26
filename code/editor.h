@@ -91,6 +91,8 @@ typedef struct Editor {
   Lister current_dir_files;
   Settings settings;
   Exchange exchange;
+  
+  i32 generation;
 } Editor;
 
 #include "renderer.h"

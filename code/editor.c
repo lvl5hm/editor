@@ -25,10 +25,10 @@ Keybind *get_keybind(Editor *editor, os_Keycode keycode,
   return result;
 }
 
-Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path) 
+Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path, String file_name) 
 {
   begin_profiler_function();
-  Buffer buffer = make_empty_buffer(editor);
+  Buffer *buffer = make_empty_buffer(editor, file_name);
   
   os_File file = os.open_file(path);
   u64 file_size = os.get_file_size(file);
@@ -37,11 +37,10 @@ Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path)
   os.close_file(file);
   
   String str = make_string(file_memory, file_size);
-  buffer_insert_string(&buffer, str);
+  buffer_insert_string(buffer, str);
   free_memory(file_memory);
   
-  set_cursor(&buffer, 0);
-  sb_push(editor->buffers, buffer);
+  set_cursor(buffer, 0);
   Buffer *inserted = editor->buffers + sb_count(editor->buffers) - 1;
   
   end_profiler_function();
@@ -131,8 +130,8 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       
       Buffer *buffer = get_existing_buffer(editor, file_name);
       if (!buffer) {
-        buffer = open_file_into_new_buffer(os, editor, path);
-        buffer->file_name = alloc_string(file_name.data, file_name.count);
+        buffer = open_file_into_new_buffer(os, editor, path,
+                                           alloc_string(file_name.data, file_name.count));
       }
       
       panel->type = Panel_Type_BUFFER;
@@ -144,17 +143,16 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
   end_profiler_function();
 }
 
+extern void thread_handle_reload(Global_Context_Info *info, Os os) {
+  global_context_info = info;
+  profiler_events = os.profiler_events;
+  profiler_event_capacity = os.profiler_event_capacity;
+  profiler_event_count = os.profiler_event_count;
+  global_os = os;
+}
+
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   App_State *state = (App_State *)memory->data;
-  
-  
-  if(memory->reloaded) {
-    global_context_info = os.context_info;
-    profiler_events = os.profiler_events;
-    profiler_event_capacity = os.profiler_event_capacity;
-    profiler_event_count = os.profiler_event_count;
-    global_os = os;
-  }
   
   profiler_event_count = 0;
   
@@ -185,13 +183,14 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     Editor *editor = &state->editor;
+    Editor zero_editor = {0};
+    *editor = zero_editor;
     
     {
       editor->buffers = sb_new(Buffer, 16);
       editor->panels = sb_new(Panel, 16);
       
-      sb_push(editor->buffers, make_empty_buffer(editor));
-      Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
+      Buffer *buffer = make_empty_buffer(editor, const_string("scratch"));
       
       
       V2 ws = renderer->window_size;
@@ -356,6 +355,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       keyword_map.values[index] = i;
     }
     
+#if 0    
     Lister *lister = &editor->current_dir_files;
     lister->items = os.get_file_names(const_string("src"));
     for (u32 i = 0; i < sb_count(lister->items); i++) {
@@ -368,6 +368,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         buffer->file_name = alloc_string(file_name.data, file_name.count);
       }
     }
+#endif
     
     glEnable(GL_SCISSOR_TEST);
     

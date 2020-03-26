@@ -13,7 +13,7 @@ set linkerFlags=-incremental:no -opt:ref OpenGL32.lib Winmm.lib user32.lib Gdi32
 del editor*.pdb>NUL 2>NUL
 echo WAITING FOR PDB > lock.tmp
 
-cl %compilerFlags% /LD ..\code\editor.c /link %linkerFlags% /out:editor.dll /EXPORT:editor_update -PDB:editor_%random%.pdb
+cl %compilerFlags% /LD ..\code\editor.c /link %linkerFlags% /out:editor.dll /EXPORT:editor_update /EXPORT:thread_handle_reload -PDB:editor_%random%.pdb
 
 del lock.tmp
 

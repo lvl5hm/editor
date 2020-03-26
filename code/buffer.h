@@ -1,8 +1,8 @@
 #ifndef BUFFER_H
 #include <lvl5_types.h>
-#include "font.h"
 #include <lvl5_string.h>
 #include "parser.h"
+#include <lvl5_intrinsics.h>
 
 #define MAX_EXCHANGE_COUNT 1024
 typedef struct {
@@ -25,6 +25,9 @@ typedef struct Buffer {
   
   Editor *editor;
   struct {
+    volatile b32 locked;
+    i32 generation;
+    
     Scope *scope;
     Arena arena;
     String *dependencies;

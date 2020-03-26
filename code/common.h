@@ -49,6 +49,9 @@ void add_profiler_event(char *name, Profiler_Event_Type type) {
 #endif
 
 
+typedef struct Thread_Queue Thread_Queue;
+typedef void Worker(void *);
+
 typedef struct {
   gl_Funcs gl;
   b32 (*pop_event)(os_Event*);
@@ -62,6 +65,10 @@ typedef struct {
   void (*read_file)(os_File, void*, u64, u64);
   u64 (*get_file_size)(os_File);
   void (*debug_pring)(char *);
+  
+  // threads
+  Thread_Queue *thread_queue;
+  void (*queue_add)(Thread_Queue *, Worker *, void *);
   
   Global_Context_Info *context_info;
   Profiler_Event *profiler_events;

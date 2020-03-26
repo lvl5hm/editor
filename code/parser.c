@@ -107,8 +107,6 @@ void buffer_tokenize(Parser *p) {
   begin_profiler_function();
   Buffer *b = p->buffer;
   
-  Token *tokens = p->buffer->cache.tokens;
-  
   i32 gap_count = get_gap_count(b);
   i32 gap_start = get_gap_start(b);
   
@@ -140,7 +138,7 @@ void buffer_tokenize(Parser *p) {
     t.type = tok_type; \
     t.end = i; \
     set_color_by_type(p, &t); \
-    sb_push(tokens, t); \
+    sb_push(p->buffer->cache.tokens, t); \
     t = (Token){ .start = i }; \
   }
 #define end(tok_type) end_no_continue(tok_type); continue;

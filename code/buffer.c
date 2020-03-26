@@ -1,7 +1,6 @@
 #include "buffer.h"
 #include <lvl5_stretchy_buffer.h>
 #include "parser.c"
-#include "font.c"
 
 inline i32 get_gap_count(Buffer *b) {
   i32 result = b->capacity - b->count;
@@ -120,7 +119,10 @@ void buffer_parse(Buffer *buffer) {
     buffer->cache.scope = add_scope(null, 1024);
     buffer->cache.dependencies = sb_new(String, 16);
     buffer->cache.colors = sb_new(Syntax, buffer->count);
-    buffer->cache.tokens = sb_new(Token, 4096);
+    
+    u32 average_token_size = 3;
+    u32 token_count_guess = buffer->count / average_token_size;
+    buffer->cache.tokens = sb_new(Token, token_count_guess);
     
     Parser _parser = {
       .token_index = 0,
@@ -133,6 +135,8 @@ void buffer_parse(Buffer *buffer) {
     
     buffer_tokenize(parser);
     parse_program(parser);
+    
+    buffer->cache.locked = false;
   }
   pop_context();
   
@@ -168,19 +172,38 @@ Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   return dependents;
 }
 
-
-void buffer_changed(Buffer *buffer) {
-  begin_profiler_function();
-  
-  bool not_scratch = get_context()->allocator == system_allocator;
-  assert(not_scratch);
-  
+void buffer_update_cache(Buffer *buffer) {
   buffer_parse(buffer);
+  buffer->cache.generation = buffer->editor->generation;
   
   Buffer **dependents = buffer_get_dependent_buffers(buffer);
   for (u32 i = 0; i < sb_count(dependents); i++) {
     Buffer *dep = dependents[i];
-    buffer_changed(dep);
+    
+    if (dep->cache.generation != dep->editor->generation) {
+      if (_InterlockedCompareExchange((volatile long *)&dep->cache.locked,
+                                      true,
+                                      false) == false) 
+      {
+        global_os.queue_add(global_os.thread_queue, buffer_update_cache, dep);
+      }
+    }
+  }
+  
+}
+
+// NOTE(lvl5): only call this from the main thread
+void buffer_changed(Buffer *buffer) {
+  begin_profiler_function();
+  
+  buffer->editor->generation++;
+  
+  
+  if (_InterlockedCompareExchange((volatile long *)&buffer->cache.locked,
+                                  true,
+                                  false) == false) 
+  {
+    global_os.queue_add(global_os.thread_queue, buffer_update_cache, buffer);
   }
   
   end_profiler_function();
@@ -239,24 +262,28 @@ void buffer_insert_string(Buffer *b, String str) {
 }
 
 
-Buffer make_empty_buffer(Editor *editor) {
+Buffer *make_empty_buffer(Editor *editor, String file_name) {
   begin_profiler_function();
   
   Buffer b = {0};
   b.capacity = 0;
-  b.file_name = const_string("scratch");
+  b.file_name = file_name;
   b.editor = editor;
+  sb_push(editor->buffers, b);
+  Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
+  
   
   bool not_scratch = get_context()->allocator == system_allocator;
   assert(not_scratch);
-  Mem_Size arena_size = megabytes(4);
-  arena_init(&b.cache.arena, alloc_array(byte, arena_size), arena_size);
   
-  buffer_insert_string(&b, const_string("\0"));
-  set_cursor(&b, 0);
+  Mem_Size arena_size = megabytes(16);
+  arena_init(&buffer->cache.arena, alloc_array(byte, arena_size), arena_size);
+  
+  buffer_insert_string(buffer, const_string("\0"));
+  set_cursor(buffer, 0);
   
   end_profiler_function();
-  return b;
+  return buffer;
 }
 
 void buffer_remove_backward(Buffer *b, i32 count) {
