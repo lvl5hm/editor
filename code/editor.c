@@ -25,10 +25,10 @@ Keybind *get_keybind(Editor *editor, os_Keycode keycode,
   return result;
 }
 
-Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path, String file_name) 
+Buffer *open_file_into_new_buffer(Os os, Editor *editor, String path) 
 {
   begin_profiler_function();
-  Buffer *buffer = make_empty_buffer(editor, file_name);
+  Buffer *buffer = make_empty_buffer(editor, path);
   
   os_File file = os.open_file(path);
   u64 file_size = os.get_file_size(file);
@@ -128,10 +128,9 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       String file_name = lister->items[lister->index];
       String path = concat(const_string("src/"), file_name);
       
-      Buffer *buffer = get_existing_buffer(editor, file_name);
+      Buffer *buffer = get_existing_buffer(editor, path);
       if (!buffer) {
-        buffer = open_file_into_new_buffer(os, editor, path,
-                                           alloc_string(file_name.data, file_name.count));
+        buffer = open_file_into_new_buffer(os, editor, alloc_string(path.data, path.count));
       }
       
       panel->type = Panel_Type_BUFFER;
@@ -145,10 +144,24 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
 
 extern void thread_handle_reload(Global_Context_Info *info, Os os) {
   global_context_info = info;
+  
   profiler_events = os.profiler_events;
   profiler_event_capacity = os.profiler_event_capacity;
   profiler_event_count = os.profiler_event_count;
   global_os = os;
+  
+  for (Token_Type i = T_KEYWORD_FIRST; i <= T_KEYWORD_LAST; i++) {
+    String key = Token_Kind_To_String[i];
+    u32 index = keyword_map_get_index(&keyword_map, key);
+    keyword_map.keys[index] = key;
+    keyword_map.values[index] = i;
+  }
+  for (Token_Type i = T_TYPE_FIRST; i <= T_TYPE_LAST; i++) {
+    String key = Token_Kind_To_String[i];
+    u32 index = keyword_map_get_index(&keyword_map, key);
+    keyword_map.keys[index] = key;
+    keyword_map.values[index] = i;
+  }
 }
 
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
@@ -190,7 +203,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       editor->buffers = sb_new(Buffer, 16);
       editor->panels = sb_new(Panel, 16);
       
-      Buffer *buffer = make_empty_buffer(editor, const_string("scratch"));
+      Buffer *buffer = make_empty_buffer(editor, const_string("<scratch>"));
       
       
       V2 ws = renderer->window_size;
@@ -342,19 +355,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     editor->settings.theme = monokai;
     
     
-    for (Token_Type i = T_KEYWORD_FIRST; i <= T_KEYWORD_LAST; i++) {
-      String key = Token_Kind_To_String[i];
-      u32 index = keyword_map_get_index(&keyword_map, key);
-      keyword_map.keys[index] = key;
-      keyword_map.values[index] = i;
-    }
-    for (Token_Type i = T_TYPE_FIRST; i <= T_TYPE_LAST; i++) {
-      String key = Token_Kind_To_String[i];
-      u32 index = keyword_map_get_index(&keyword_map, key);
-      keyword_map.keys[index] = key;
-      keyword_map.values[index] = i;
-    }
-    
 #if 0    
     Lister *lister = &editor->current_dir_files;
     lister->items = os.get_file_names(const_string("src"));
@@ -466,9 +466,15 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                                       v2_hadamard(panel->rect.max, ws));
     renderer_begin_render(renderer, border_rect);
     f32 border_thickness = 3;
+    f32 header_height = font->line_height;
     
-    Rect2 rect = rect2_min_max(v2(border_rect.min.x+4, border_rect.min.y+4),
-                               v2(border_rect.max.x+4, border_rect.max.y+4));
+    Rect2 rect = rect2_min_max(v2(border_rect.min.x+border_thickness, 
+                                  border_rect.min.y+border_thickness),
+                               v2(border_rect.max.x-border_thickness, border_rect.max.y-border_thickness - header_height));
+    
+    draw_rect(renderer, rect, theme.colors[Syntax_BACKGROUND]);
+    
+    String panel_name = {0};
     
     switch (panel->type) {
       case Panel_Type_FILE_DIALOG_OPEN: {
@@ -496,11 +502,20 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         Buffer *buffer = buffer_view->buffer;
         
         draw_buffer_view(renderer, rect, buffer_view, &editor->settings.theme, &(editor->panels + panel_index)->scroll);
+        panel_name = buffer->path;
       } break;
     }
     
+    {
+      Rect2 header = rect2_min_max(v2(border_rect.min.x, border_rect.max.y - header_height),
+                                   border_rect.max);
+      draw_rect(renderer, header, theme.colors[Syntax_COMMENT]);
+      draw_string(renderer, panel_name, v2(rect.min.x, header.max.y), theme.colors[Syntax_DEFAULT]);
+    }
+    
+    
     draw_rect_outline(renderer, border_rect, border_thickness, 
-                      editor->settings.theme.colors[Syntax_DEFAULT]);
+                      editor->settings.theme.colors[Syntax_FUNCTION]);
     
     renderer_end_render(gl, renderer);
   }

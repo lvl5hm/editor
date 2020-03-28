@@ -173,7 +173,6 @@ void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *t
   item.buffer.scroll = scroll;
   item.buffer.view = view;
   
-  draw_rect(r, rect, theme->colors[Syntax_BACKGROUND]);
   sb_push(r->items, item);
 }
 
@@ -267,7 +266,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         Rect2 buffer_rect = item->buffer.rect;
         
         V2 offset = v2(buffer_rect.min.x,
-                       buffer_rect.max.y - font->line_height + font->line_spacing + scroll->y*font->line_spacing);
+                       buffer_rect.max.y + scroll->y*font->line_spacing);
         i32 gap_start = get_gap_start(buffer);
         i32 gap_count = get_gap_count(buffer);
         

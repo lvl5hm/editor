@@ -1,20 +1,4 @@
 [
-  {"name": "buffer_parse", "cat": "PERF", "ts": 1208728575993536, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "add_scope", "cat": "PERF", "ts": 1208728576030848, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "add_scope", "cat": "PERF", "ts": 1208728576032226, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_tokenize", "cat": "PERF", "ts": 1208728576034968, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "set_color", "cat": "PERF", "ts": 1208728576047810, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "set_color", "cat": "PERF", "ts": 1208728576047890, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_tokenize", "cat": "PERF", "ts": 1208728576048412, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "parse_program", "cat": "PERF", "ts": 1208728576048636, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "buffer_part_to_string", "cat": "PERF", "ts": 1208728576048932, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "buffer_part_to_string", "cat": "PERF", "ts": 1208728576049060, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "parse_any", "cat": "PERF", "ts": 1208728576049592, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "parse_any", "cat": "PERF", "ts": 1208728576059744, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "parse_program", "cat": "PERF", "ts": 1208728576059808, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_parse", "cat": "PERF", "ts": 1208728576059902, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_get_dependent_buffers", "cat": "PERF", "ts": 1208731151455983, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "buffer_get_dependent_buffers", "cat": "PERF", "ts": 1208731151463673, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1208746234416440, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1208746236697806, "ph": "E", "pid": 1, "tid": 1}
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 1472540112754424, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 1472540113440067, "ph": "E", "pid": 1, "tid": 1}
 ]

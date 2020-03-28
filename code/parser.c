@@ -483,9 +483,13 @@ void next_token(Parser *p) {
 
 bool accept_token(Parser *p, Token_Type type) {
   bool result = false;
-  if (type == peek_token(p, 0)->type) {
+  Token *t = peek_token(p, 0);
+  
+  if (type == t->type) {
     result = true;
-    next_token(p);
+    if (type != T_END_OF_FILE) {
+      next_token(p);
+    }
   }
   return result;
 }
@@ -521,7 +525,8 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef, bool is_arg) {
   }
   
   if (accept_token(p, T_LBRACKET)) {
-    while (!accept_token(p, T_RBRACKET)) {
+    while (!(accept_token(p, T_RBRACKET) ||
+             accept_token(p, T_END_OF_FILE))) {
       parse_any(p);
     }
   } else if (accept_token(p, T_LPAREN)) {
@@ -541,7 +546,8 @@ Token *parse_direct_declarator(Parser *p, bool is_typedef, bool is_arg) {
     } while (accept_token(p, T_COMMA));
     
     if (accept_token(p, T_LCURLY)) {
-      while (!accept_token(p, T_RCURLY)) {
+      while (!(accept_token(p, T_RCURLY) ||
+               accept_token(p, T_END_OF_FILE))) {
         parse_any(p);
       }
     }
@@ -560,7 +566,7 @@ Token *parse_declarator(Parser *p, bool is_typedef, bool is_arg) {
 
 bool parse_initializer(Parser *p) {
   begin_profiler_function();
-  while (!accept_token(p, T_SEMI) && p->token_index < (i32)sb_count(p->buffer->cache.tokens)) 
+  while (!(accept_token(p, T_SEMI) || accept_token(p, T_END_OF_FILE))) 
   {
     parse_any(p);
   }
@@ -601,7 +607,8 @@ bool parse_struct_specifier(Parser *p) {
     if (accept_token(p, T_LCURLY)) {
       p->scope = add_scope(p->scope, 32);
       
-      while (!accept_token(p, T_RCURLY)) {
+      while (!(accept_token(p, T_RCURLY) ||
+               accept_token(p, T_END_OF_FILE))) {
         if (parse_decl_specifier(p)) {
           while (parse_decl_specifier(p));
           do {
@@ -654,7 +661,8 @@ bool parse_enum_specifier(Parser *p) {
     if (accept_token(p, T_LCURLY)) {
       p->scope = add_scope(p->scope, 128);
       
-      while (!accept_token(p, T_RCURLY)) {
+      while (!(accept_token(p, T_RCURLY) ||
+               accept_token(p, T_END_OF_FILE))) {
         if (accept_token(p, T_NAME)) {
           Token *name = peek_token(p, -1);
           set_color(p, name, Syntax_ENUM_MEMBER);
@@ -747,7 +755,7 @@ bool parse_decl(Parser *p) {
 }
 
 
-Buffer *get_existing_buffer(Editor *editor, String file_name) {
+Buffer *get_existing_buffer(Editor *editor, String path) {
   begin_profiler_function();
   Buffer *result = null;
   for (u32 buffer_index = 0; 
@@ -755,7 +763,7 @@ Buffer *get_existing_buffer(Editor *editor, String file_name) {
        buffer_index++) 
   {
     Buffer *b = editor->buffers + buffer_index;
-    if (string_compare(b->file_name, file_name)) {
+    if (string_compare(b->path, path)) {
       result = b;
       break;
     }
@@ -844,7 +852,6 @@ void parse_any(Parser *p) {
     case T_STRUCT:
     case T_UNION: {
       if (parse_struct_specifier(p)) {
-        next_token(p);
         while (parse_decl_specifier(p));
         do {
           parse_init_declarator(p, false);
@@ -909,6 +916,10 @@ void parse_any(Parser *p) {
       }
     } break;
     
+    case T_END_OF_FILE: {
+      
+    } break;
+    
     default: {
       next_token(p);
     } break;
@@ -918,11 +929,7 @@ void parse_any(Parser *p) {
 
 void parse_program(Parser *p) {
   begin_profiler_function();
-  while (p->token_index < (i32)sb_count(p->buffer->cache.tokens)) {
-    String s = token_to_string(p->buffer, p->buffer->cache.tokens + p->token_index);
-    if (string_compare(s, const_string("m4"))) {
-      int fds = 43;
-    }
+  while (!accept_token(p, T_END_OF_FILE)) {
     parse_any(p);
   }
   end_profiler_function();

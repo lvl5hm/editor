@@ -13,7 +13,7 @@ typedef struct {
 typedef struct Editor Editor;
 
 typedef struct Buffer {
-  String file_name;
+  String path;
   
   char *data;
   i32 count;

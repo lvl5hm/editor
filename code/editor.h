@@ -73,8 +73,14 @@ typedef struct Buffer_View {
 } Buffer_View;
 
 typedef struct {
+  String path;
+  Lister files;
+} File_Dialog;
+
+typedef struct {
   union {
     Buffer_View buffer_view;
+    File_Dialog file_dialog;
   };
   
   Panel_Type type;

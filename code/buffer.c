@@ -98,13 +98,25 @@ void set_cursor(Buffer *b, i32 pos) {
     i32 gap_count = get_gap_count(b);
     
     if (moved_by < 0) {
+#if 0      
+      memmove(b->data + gap_start + gap_count,
+              b->data + gap_start,
+              -moved_by);
+#else
       for (i32 i = 0; i < -moved_by; i++) {
         b->data[old_gap_start+gap_count-1-i] = b->data[old_gap_start-1-i];
       }
+#endif
     } else {
+#if 0      
+      memmove(b->data + old_gap_start,
+              b->data + old_gap_start + gap_count,
+              moved_by);
+#else
       for (i32 i = 0; i < moved_by; i++) {
         b->data[old_gap_start+i] = b->data[old_gap_start+gap_count+i];
       }
+#endif
     }
   }
   
@@ -143,6 +155,11 @@ void buffer_parse(Buffer *buffer) {
   end_profiler_function();
 }
 
+String resolve_include_path(String include) {
+  String result = include;
+  return result;
+}
+
 Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
   begin_profiler_function();
   push_scratch_context();
@@ -159,7 +176,7 @@ Buffer **buffer_get_dependent_buffers(Buffer *buffer) {
     {
       // TODO(lvl5): need to search in the file system like the preprocessor does
       String include = other->cache.dependencies[dep_index];
-      if (string_compare(include, buffer->file_name)) {
+      if (string_compare(include, buffer->path)) {
         sb_push(dependents, other);
         break;
       }
@@ -197,14 +214,9 @@ void buffer_changed(Buffer *buffer) {
   begin_profiler_function();
   
   buffer->editor->generation++;
-  
-  
-  if (_InterlockedCompareExchange((volatile long *)&buffer->cache.locked,
-                                  true,
-                                  false) == false) 
-  {
-    global_os.queue_add(global_os.thread_queue, buffer_update_cache, buffer);
-  }
+  buffer->cache.locked = true;
+  buffer_update_cache(buffer);
+  buffer->cache.locked = false;
   
   end_profiler_function();
 }
@@ -229,6 +241,7 @@ void buffer_insert_string(Buffer *b, String str) {
     while (b->count + (i32)str.count > b->capacity) {
       b->capacity = b->capacity*2;
     }
+    // one extra \0 after the buffer for kerning
     b->data = alloc_array(char, b->capacity + 1);
     b->data[b->capacity] = '\0';
     i32 gap_start = get_gap_start(b);
@@ -262,12 +275,12 @@ void buffer_insert_string(Buffer *b, String str) {
 }
 
 
-Buffer *make_empty_buffer(Editor *editor, String file_name) {
+Buffer *make_empty_buffer(Editor *editor, String path) {
   begin_profiler_function();
   
   Buffer b = {0};
   b.capacity = 0;
-  b.file_name = file_name;
+  b.path = alloc_string(path.data, path.count);
   b.editor = editor;
   sb_push(editor->buffers, b);
   Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;

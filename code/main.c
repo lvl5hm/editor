@@ -114,6 +114,15 @@ os_entry_point() {
   gl_Funcs gl;
   os_Window window = os_create_window(&gl);
   
+  {
+    String path = const_string("D:/word/code/editor/data/src/main.c");
+    char * dir = to_c_string(os_get_parent_dir(path));
+    char * file = to_c_string(os_get_file_name_from_path(path));
+    char * ext = to_c_string(os_get_file_ext(path));
+    char * base = to_c_string(os_get_file_base(path));
+    int foo = 32;
+  }
+  
   os_Input input = {0};
   
   Thread_Queue *thread_queue = &queue;
