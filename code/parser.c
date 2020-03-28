@@ -594,7 +594,7 @@ bool parse_struct_specifier(Parser *p) {
   bool result = false;
   begin_profiler_function();
   
-  if (accept_token(p, T_STRUCT) || accept_token(p, T_UNION)) {
+  if (accept_token(p, T_STRUCT) || accept_token(p, T_UNION) || accept_token(p, T_CLASS)) {
     bool has_name = false, has_body = false;
     if (accept_token(p, T_NAME)) {
       Token *struct_name = peek_token(p, -1);
@@ -849,6 +849,7 @@ void parse_any(Parser *p) {
       }
     } break;
     
+    case T_CLASS:
     case T_STRUCT:
     case T_UNION: {
       if (parse_struct_specifier(p)) {

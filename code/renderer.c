@@ -102,12 +102,12 @@ void renderer_begin_render(Renderer *r, Rect2 rect) {
   glScissor(min.x, min.y, size.x, size.y);
 }
 
-void render_scale(Renderer *r, V3 scale) {
-  r->state.matrix = m4_unscale(r->state.matrix, scale);
+void render_scale(Renderer *r, V2 scale) {
+  r->state.matrix = m4_unscale(r->state.matrix, v2_to_v3(scale, 1.0f));
 }
 
-void render_translate(Renderer *r, V3 p) {
-  r->state.matrix = m4_untranslate(r->state.matrix, p);
+void render_translate(Renderer *r, V2 p) {
+  r->state.matrix = m4_untranslate(r->state.matrix, v2_to_v3(p, 0.0f));
 }
 
 void render_rotate(Renderer *r, f32 angle) {
@@ -118,9 +118,10 @@ void render_rotate(Renderer *r, f32 angle) {
 f32 measure_string_width(Renderer *r, String s) {
   Font *font = r->state.font;
   f32 result = 0;
-  for (u32 char_index = 0; char_index < s.count; char_index++) {
+  for (u32 char_index = 0; char_index < s.count - 1; char_index++) {
     result += font_get_advance(font, s.data[char_index], s.data[char_index+1]);
   }
+  result += font->advance[s.data[s.count - 1] - font->first_codepoint];
   
   return result;
 }
@@ -128,8 +129,7 @@ f32 measure_string_width(Renderer *r, String s) {
 
 // strings drawn with this MUST have an extra char of padding AFTER count
 void draw_string(Renderer *r, String s, V2 p, u32 color) {
-  V3 pos = v2_to_v3(p, 0);
-  render_translate(r, pos);
+  render_translate(r, p);
   
   Render_Item item = {
     .type = Render_Type_STRING,
@@ -139,7 +139,7 @@ void draw_string(Renderer *r, String s, V2 p, u32 color) {
   item.string.string = s;
   sb_push(r->items, item);
   
-  render_translate(r, v3_negate(pos));
+  render_translate(r, v2_negate(p));
 }
 
 void draw_rect(Renderer *r, Rect2 rect, u32 color) {
@@ -274,6 +274,8 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         
         f32 lines_on_screen = r->window_size.y/font->line_spacing;
         f32 border_top = scroll->y + PADDING;
+        
+        // TODO(lvl5): something is wrong with border_bottom
         f32 border_bottom = scroll->y + lines_on_screen - PADDING;
         
         i32 line_index = 0;

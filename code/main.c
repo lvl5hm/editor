@@ -112,7 +112,7 @@ os_entry_point() {
   }
   
   gl_Funcs gl;
-  os_Window window = os_create_window(&gl);
+  os_Window window = os_create_window(&gl, 1366, 768);
   
   {
     String path = const_string("D:/word/code/editor/data/src/main.c");

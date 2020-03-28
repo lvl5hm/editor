@@ -89,7 +89,8 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
     
     case Command_LISTER_MOVE_DOWN:
     case Command_LISTER_MOVE_UP: {
-      Lister *lister = &editor->current_dir_files;
+#if 0
+      File_Dialog;
       
       i32 count = (i32)sb_count(lister->items);
       if (command == Command_LISTER_MOVE_DOWN) {
@@ -99,6 +100,7 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
         lister->index--;
         if (lister->index < 0) lister->index = count-1;
       }
+#endif
     } break;
     
     case Command_REMOVE_BACKWARD: {
@@ -114,29 +116,37 @@ void execute_command(Os os, Editor *editor, Renderer *renderer, Command command)
       buffer_indent(buffer);
     } break;
     case Command_OPEN_FILE_DIALOG: {
+#if 0
       panel->type = Panel_Type_FILE_DIALOG_OPEN;
       
       Lister *lister = &editor->current_dir_files;
       lister->items = os.get_file_names(const_string("src"));
+#endif
     } break;
     
     case Command_LISTER_SELECT: {
       // TODO(lvl5): handle file already open
       // TODO(lvl5): handle creating new file
       
+#if 0
       Lister *lister = &editor->current_dir_files;
       String file_name = lister->items[lister->index];
-      String path = concat(const_string("src/"), file_name);
-      
-      Buffer *buffer = get_existing_buffer(editor, path);
-      if (!buffer) {
-        buffer = open_file_into_new_buffer(os, editor, alloc_string(path.data, path.count));
+      if (string_compare(const_string(".."), file_name)) {
+        
+      } else {
+        String path = concat(const_string("src/"), file_name);
+        
+        Buffer *buffer = get_existing_buffer(editor, path);
+        if (!buffer) {
+          buffer = open_file_into_new_buffer(os, editor, alloc_string(path.data, path.count));
+        }
+        
+        panel->type = Panel_Type_BUFFER;
+        panel->buffer_view = (Buffer_View){
+          .buffer = buffer,
+        };
       }
-      
-      panel->type = Panel_Type_BUFFER;
-      panel->buffer_view = (Buffer_View){
-        .buffer = buffer,
-      };
+#endif
     } break;
   }
   end_profiler_function();
@@ -208,7 +218,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       
       V2 ws = renderer->window_size;
       V2 bottom_left = v2(-0.5f, -0.5f);
-      V2 panel_size = v2(0.5f, 1.0f);
+      V2 panel_size = v2(1.0f, 1.0f);
       
       {
         Panel panel = (Panel){
@@ -370,8 +380,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     }
 #endif
     
-    glEnable(GL_SCISSOR_TEST);
-    
     
     
     {
@@ -433,7 +441,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     }
   }
   
-  
+  V2 mouse_p = v2_sub(input->mouse.p, v2_mul(renderer->window_size, 0.5f));
+  mouse_p.y *= -1;
   
   
   gl.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -458,19 +467,29 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   }
   
   
+  gl.ClearColor(0, 0, 0, 1);
+  gl.Clear(GL_COLOR_BUFFER_BIT);
+  
+  V2 ws = renderer->window_size;
+  f32 menu_height = font->line_height;
+  
+  glEnable(GL_SCISSOR_TEST);
   for (u32 panel_index = 0; panel_index < sb_count(editor->panels); panel_index++) {
     Panel *panel = editor->panels + panel_index;
     
-    V2 ws = renderer->window_size;
+    
+    
     Rect2 border_rect = rect2_min_max(v2_hadamard(panel->rect.min, ws),
                                       v2_hadamard(panel->rect.max, ws));
+    
     renderer_begin_render(renderer, border_rect);
+    border_rect.max.y -= menu_height;
     f32 border_thickness = 3;
     f32 header_height = font->line_height;
     
     Rect2 rect = rect2_min_max(v2(border_rect.min.x+border_thickness, 
                                   border_rect.min.y+border_thickness),
-                               v2(border_rect.max.x-border_thickness, border_rect.max.y-border_thickness - header_height));
+                               v2(border_rect.max.x-border_thickness, border_rect.max.y-header_height));
     
     draw_rect(renderer, rect, theme.colors[Syntax_BACKGROUND]);
     
@@ -478,6 +497,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     switch (panel->type) {
       case Panel_Type_FILE_DIALOG_OPEN: {
+#if 0
         Lister *lister = &editor->current_dir_files;
         u32 file_count = sb_count(lister->items);
         
@@ -495,6 +515,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
           draw_string(renderer, file_name, pos, color);
           pos.y -= font->line_spacing;
         }
+#endif
       } break;
       
       case Panel_Type_BUFFER: {
@@ -507,18 +528,60 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     }
     
     {
-      Rect2 header = rect2_min_max(v2(border_rect.min.x, border_rect.max.y - header_height),
-                                   border_rect.max);
+      V2 panel_size = rect2_get_size(border_rect);
+      V2 header_size = v2(panel_size.x, header_height);
+      Rect2 header = rect2_min_size(v2(border_rect.min.x, 
+                                       border_rect.max.y - header_height),
+                                    header_size);
       draw_rect(renderer, header, theme.colors[Syntax_COMMENT]);
       draw_string(renderer, panel_name, v2(rect.min.x, header.max.y), theme.colors[Syntax_DEFAULT]);
     }
     
-    
     draw_rect_outline(renderer, border_rect, border_thickness, 
-                      editor->settings.theme.colors[Syntax_FUNCTION]);
+                      editor->settings.theme.colors[Syntax_COMMENT]);
     
     renderer_end_render(gl, renderer);
   }
+  
+  glDisable(GL_SCISSOR_TEST);
+  renderer_begin_render(renderer, rect2_min_size(v2_zero(), ws));
+  {
+    V2 menu_size = v2(ws.x, menu_height);
+    Rect2 menu_rect = rect2_min_size(v2(-ws.x*0.5f, ws.y*0.5f - menu_height),
+                                     menu_size);
+    draw_rect(renderer, menu_rect, theme.colors[Syntax_BACKGROUND]);
+    
+    f32 menu_item_padding = 8;
+    String menu_items[] = {
+      arr_string("file"),
+      arr_string("edit"),
+      arr_string("panels"),
+      arr_string("commands"),
+      arr_string("about"),
+    };
+    
+    V2 offset = rect2_top_left(menu_rect);
+    for (u32 i = 0; i < array_count(menu_items); i++) {
+      String name = menu_items[i];
+      f32 string_width = measure_string_width(renderer, name);
+      f32 rect_width = menu_item_padding*2 + string_width;
+      
+      Rect2 rect = rect2_min_size(v2_add(offset, v2(0, -menu_height)), 
+                                  v2(rect_width, menu_height));
+      
+      if (point_in_rect(mouse_p, rect)) {
+        draw_rect(renderer, rect, theme.colors[Syntax_COMMENT]);
+      }
+      
+      draw_string(renderer, name, v2_add(offset, v2(menu_item_padding, 0)),
+                  theme.colors[Syntax_DEFAULT]);
+      
+      offset = v2_add(offset, v2(rect_width, 0));
+    }
+  }
+  renderer_end_render(gl, renderer);
+  
+  
   
   static bool true_once = true;
   

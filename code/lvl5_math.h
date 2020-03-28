@@ -1039,6 +1039,11 @@ Rect2 rect2_translate(Rect2 r, V2 v) {
   return result;
 }
 
+V2 rect2_top_left(Rect2 r) {
+  V2 result = v2(r.min.x, r.max.y);
+  return result;
+}
+
 Rect2 rect2_apply_m4(Rect2 r, M4 m) {
   Rect2 result;
   result.min = m4_mul_v4(m, v2_to_v4(r.min, 1, 1)).xy;

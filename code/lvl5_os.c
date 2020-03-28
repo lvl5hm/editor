@@ -12,6 +12,7 @@
 
 #if os_WIN32
 #include <Windows.h>
+#include <Windowsx.h>
 #include <KHR/wglext.h>
 
 
@@ -94,6 +95,7 @@ os_File os_open_file(String file_name) {
 // the array and all file names inside must be freed at some point
 String *os_get_file_names(String path) {
   String *result = sb_new(String, 16);
+  sb_push(result, alloc_string("..", 2));
   
   WIN32_FIND_DATAA findData;
   String wildcard = concat(path, const_string("\\*.*"));
@@ -273,7 +275,7 @@ typedef struct {
   WNDCLASSA window_class;
 } win32_Window;
 
-win32_Window win32_window_create(HINSTANCE instance, WNDPROC WindowProc, bool visible) {
+win32_Window win32_window_create(HINSTANCE instance, WNDPROC WindowProc, bool visible, i32 width, i32 height) {
   WNDCLASSA window_class = {0};
   window_class.style = CS_HREDRAW|CS_VREDRAW|CS_OWNDC;
   window_class.lpfnWndProc = WindowProc;
@@ -284,15 +286,13 @@ win32_Window win32_window_create(HINSTANCE instance, WNDPROC WindowProc, bool vi
   ATOM window_class_name = RegisterClassA(&window_class);
   assert(window_class_name);
   
-#define WINDOW_WIDTH 1000
-#define WINDOW_HEIGHT 480
   HWND window = CreateWindowA(window_class.lpszClassName,
                               "test_window_name",
                               WS_OVERLAPPEDWINDOW|(visible ? WS_VISIBLE : 0),
                               CW_USEDEFAULT, // x
                               CW_USEDEFAULT, // y
-                              WINDOW_WIDTH,
-                              WINDOW_HEIGHT,
+                              width,
+                              height,
                               0,
                               0,
                               instance,
@@ -311,9 +311,9 @@ void win32_window_destroy(win32_Window window, HINSTANCE instance) {
   assert(window_class_unregistered);
 }
 
-HWND win32_init_opengl(gl_Funcs *gl, HINSTANCE instance, WNDPROC WindowProc) {
+HWND win32_init_opengl(gl_Funcs *gl, HINSTANCE instance, WNDPROC WindowProc, i32 width, i32 height) {
   // NOTE(lvl5): create a fake context
-  win32_Window fake_window = win32_window_create(instance, WindowProc, false);
+  win32_Window fake_window = win32_window_create(instance, WindowProc, false, width, height);
   HGLRC fake_opengl_context;
   HDC fake_device_context = GetDC(fake_window.window);
   {
@@ -366,7 +366,7 @@ HWND win32_init_opengl(gl_Funcs *gl, HINSTANCE instance, WNDPROC WindowProc) {
   win32_window_destroy(fake_window, instance);
   
   // NOTE(lvl5): now we need to create an actual context
-  win32_Window window = win32_window_create(instance, WindowProc, true);
+  win32_Window window = win32_window_create(instance, WindowProc, true, width, height);
   HDC device_context = GetDC(window.window);
   
   int attributes[] = {
@@ -556,10 +556,10 @@ LRESULT CALLBACK os_window_proc(HWND   window,
 }
 
 // TODO: leaking the window handle!!
-os_Window os_create_window(gl_Funcs *gl) {
+os_Window os_create_window(gl_Funcs *gl, i32 width, i32 height) {
   win32_Window *window = alloc_struct(win32_Window);
   HINSTANCE instance = GetModuleHandle(null);
-  window->window = win32_init_opengl(gl, instance, os_window_proc);
+  window->window = win32_init_opengl(gl, instance, os_window_proc, width, height);
   __os_global_state.device_context = GetDC(window->window);
   return (os_Window *)window;
 }
@@ -580,6 +580,12 @@ void os_collect_messages(os_Window _window, os_Input *input) {
   while (PeekMessage(&message, window->window, 0, 0, PM_REMOVE)) {
     TranslateMessage(&message);
     switch (message.message) {
+      case WM_MOUSEMOVE: {
+        i32 x = GET_X_LPARAM(message.lParam);
+        i32 y = GET_Y_LPARAM(message.lParam);
+        
+        input->mouse.p = v2_i(x, y);
+      } break;
       
       case WM_KEYDOWN:
       case WM_KEYUP:

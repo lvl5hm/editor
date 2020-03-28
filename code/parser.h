@@ -29,6 +29,22 @@ typedef enum {
   T_CONST,
   T_VOLATILE,
   
+  // c++ specific keywords
+  T_NEW,
+  T_DELETE,
+  T_TEMPLATE,
+  T_TYPENAME,
+  T_CLASS,
+  T_PRIVATE,
+  T_PUBLIC,
+  T_PROTECTED,
+  T_FRIEND,
+  T_VIRTUAL,
+  T_CONSTEXPR,
+  // context sensitive keywords
+  T_OVERRIDE,
+  T_FINAL,
+  
   T_INLINE,
   T_STATIC,
   T_CONTINUE,
@@ -113,6 +129,20 @@ typedef enum {
 #define arr_string(chars) {chars, array_count(chars)-1}
 
 String Token_Kind_To_String[] = {
+  [T_TEMPLATE] = arr_string("template"),
+  [T_TYPENAME] = arr_string("typename"),
+  [T_CLASS] = arr_string("class"),
+  [T_PRIVATE] = arr_string("private"),
+  [T_PUBLIC] = arr_string("public"),
+  [T_PROTECTED] = arr_string("protected"),
+  [T_FRIEND] = arr_string("friend"),
+  [T_VIRTUAL] = arr_string("virtual"),
+  [T_CONSTEXPR] = arr_string("constexpr"),
+  [T_OVERRIDE] = arr_string("override"),
+  [T_FINAL] = arr_string("final"),
+  [T_NEW] = arr_string("new"),
+  [T_DELETE] = arr_string("delete"),
+  
   [T_CHAR] = arr_string("char"),
   [T_SHORT] = arr_string("short"),
   [T_INT] = arr_string("int"),

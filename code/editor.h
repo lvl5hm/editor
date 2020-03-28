@@ -94,7 +94,6 @@ typedef struct Editor {
   Panel *panels;
   i32 active_panel_index;
   
-  Lister current_dir_files;
   Settings settings;
   Exchange exchange;
   
