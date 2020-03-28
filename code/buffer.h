@@ -1,8 +1,8 @@
 #ifndef BUFFER_H
-#include <lvl5_types.h>
-#include <lvl5_string.h>
+#include "lvl5_types.h"
+#include "lvl5_string.h"
 #include "parser.h"
-#include <lvl5_intrinsics.h>
+#include "lvl5_intrinsics.h"
 
 #define MAX_EXCHANGE_COUNT 1024
 typedef struct {

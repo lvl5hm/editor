@@ -1,9 +1,9 @@
 #include "common.h"
 
-#include <lvl5_files.h>
+#include "lvl5_files.h"
 #include <stdio.h>
-#include <lvl5_os.c>
-#include <lvl5_arena.h>
+#include "lvl5_os.c"
+#include "lvl5_arena.h"
 
 typedef void Editor_Update(Os, Editor_Memory *, os_Input *);
 typedef void Thread_Handle_Reload(Global_Context_Info *, Os);

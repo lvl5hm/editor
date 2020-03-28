@@ -1,9 +1,9 @@
 #ifndef EDITOR_COMMON_H
 
-#include <lvl5_os.h>
-#include <lvl5_types.h>
-#include <lvl5_opengl.h>
-#include <lvl5_files.h>
+#include "lvl5_os.h"
+#include "lvl5_types.h"
+#include "lvl5_opengl.h"
+#include "lvl5_files.h"
 
 
 typedef enum {

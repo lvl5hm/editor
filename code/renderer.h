@@ -1,6 +1,6 @@
 #ifndef RENDERER_H
 #include "parser.h"
-#include <lvl5_opengl.h>
+#include "lvl5_opengl.h"
 
 typedef struct Quad_Instance {
   u16 texture_x;
