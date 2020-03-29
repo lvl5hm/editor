@@ -1,6 +1,6 @@
 [
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1529733527953911, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1529733528345261, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1529733528357959, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1529733528404071, "ph": "E", "pid": 1, "tid": 1}
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 37427059645666, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 37427059843572, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 37427059869980, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 37427059917352, "ph": "E", "pid": 1, "tid": 1}
 ]

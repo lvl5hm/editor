@@ -98,6 +98,8 @@ typedef struct Editor {
   Exchange exchange;
   
   i32 generation;
+  
+  i32 menu_index;
 } Editor;
 
 #include "renderer.h"

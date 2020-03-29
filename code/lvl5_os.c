@@ -573,6 +573,19 @@ void os_collect_messages(os_Window _window, os_Input *input) {
     key->pressed = false;
   }
   
+  {
+    os_Button *key = &input->mouse.left;
+    key->went_up = false;
+    key->went_down = false;
+    key->pressed = false;
+  }
+  {
+    os_Button *key = &input->mouse.right;
+    key->went_up = false;
+    key->went_down = false;
+    key->pressed = false;
+  }
+  
   input->char_count = 0;
   win32_Window *window = (win32_Window *)_window;
   
@@ -580,6 +593,36 @@ void os_collect_messages(os_Window _window, os_Input *input) {
   while (PeekMessage(&message, window->window, 0, 0, PM_REMOVE)) {
     TranslateMessage(&message);
     switch (message.message) {
+      case WM_LBUTTONDOWN: {
+        os_Button *key = &input->mouse.left;
+        if (key && !key->is_down) {
+          key->went_down = true;
+          key->is_down = true;
+        }
+      } break;
+      case WM_RBUTTONDOWN: {
+        os_Button *key = &input->mouse.right;
+        if (key && !key->is_down) {
+          key->went_down = true;
+          key->is_down = true;
+        }
+      } break;
+      
+      case WM_LBUTTONUP: {
+        os_Button *key = &input->mouse.left;
+        if (key && key->is_down) {
+          key->went_up = true;
+          key->is_down = false;
+        }
+      } break;
+      case WM_RBUTTONUP: {
+        os_Button *key = &input->mouse.right;
+        if (key && key->is_down) {
+          key->went_up = true;
+          key->is_down = false;
+        }
+      } break;
+      
       case WM_MOUSEMOVE: {
         i32 x = GET_X_LPARAM(message.lParam);
         i32 y = GET_Y_LPARAM(message.lParam);

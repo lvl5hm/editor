@@ -1,5 +1,6 @@
 #include "editor.h"
 #include "renderer.c"
+#include "layout.h"
 
 Keybind *get_keybind(Editor *editor, os_Keycode keycode, 
                      bool shift, bool ctrl, bool alt) 
@@ -561,7 +562,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     };
     
     V2 offset = rect2_top_left(menu_rect);
-    for (u32 i = 0; i < array_count(menu_items); i++) {
+    for (i32 i = 0; i < array_count(menu_items); i++) {
       String name = menu_items[i];
       f32 string_width = measure_string_width(renderer, name);
       f32 rect_width = menu_item_padding*2 + string_width;
@@ -569,9 +570,48 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       Rect2 rect = rect2_min_size(v2_add(offset, v2(0, -menu_height)), 
                                   v2(rect_width, menu_height));
       
+      bool mouse_in_menu = false;
+      
       if (point_in_rect(mouse_p, rect)) {
-        draw_rect(renderer, rect, theme.colors[Syntax_COMMENT]);
+        mouse_in_menu = true;
+        
+        draw_rect_outline(renderer, rect, 2, theme.colors[Syntax_COMMENT]);
+        if (input->mouse.left.went_down) {
+          editor->menu_index = i;
+        }
       }
+      
+      
+      if (editor->menu_index == i) {
+        draw_rect(renderer, rect, theme.colors[Syntax_COMMENT]);
+        for (u32 j = 0; j < array_count(menu_items); j++) {
+          String name = menu_items[j];
+          f32 string_width = 200;
+          V2 min = v2(offset.x, 
+                      offset.y - menu_height- (j+1)*renderer->state.font->line_height);
+          
+          Rect2 submenu_rect = 
+            rect2_min_size(min, 
+                           v2(string_width, 
+                              renderer->state.font->line_height));
+          
+          if (point_in_rect(mouse_p, submenu_rect)) {
+            draw_rect(renderer, submenu_rect, theme.colors[Syntax_COMMENT]);
+            mouse_in_menu = true;
+          } else {
+            draw_rect(renderer, submenu_rect, 0xFF444444);
+          }
+          
+          min.y += renderer->state.font->line_height;
+          min.x += menu_item_padding;
+          draw_string(renderer, name, min, theme.colors[Syntax_DEFAULT]);
+        }
+      }
+      
+      if (!mouse_in_menu && editor->menu_index == i) {
+        editor->menu_index = -1;
+      }
+      
       
       draw_string(renderer, name, v2_add(offset, v2(menu_item_padding, 0)),
                   theme.colors[Syntax_DEFAULT]);
@@ -579,6 +619,10 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       offset = v2_add(offset, v2(rect_width, 0));
     }
   }
+  
+  
+  foo(renderer);
+  
   renderer_end_render(gl, renderer);
   
   
