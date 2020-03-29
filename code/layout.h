@@ -14,6 +14,9 @@ typedef struct {
   f32 height;
   f32 padding_left;
   f32 padding_right;
+  f32 padding_top;
+  f32 padding_bottom;
+  
   u32 bg_color;
 } Box;
 
@@ -22,187 +25,251 @@ typedef struct Item {
   V2 p;
   
   Box box;
-  
-  Item *children;
+  Item **children;
   Item *parent;
 } Item;
 
+typedef enum {
+  Layout_Mode_NONE,
+  Layout_Mode_RESOLVE_AUTOS,
+  Layout_Mode_RESOLVE_STRETCHES,
+  Layout_Mode_DRAW,
+} Layout_Mode;
+
 typedef struct {
+  V2 p;
+  Layout_Mode mode;
+  Item *items;
+  u32 current_index;
+  
   Item *current_container;
-  Item *root;
+  Renderer *renderer;
 } Layout;
 
-Layout make_layout() {
-  Layout result = {0};
+Layout make_layout(Renderer *r) {
+  Layout result = {
+    .items = sb_new(Item, 32),
+    .renderer = r,
+    .p = v2(-r->window_size.x*0.5f, r->window_size.y*0.5f),
+  };
+  return result;
+}
+
+Item *layout_get_item(Layout *layout, Box box) {
+  Item *result = null;
+  if (sb_count(layout->items) > layout->current_index) {
+    result = layout->items + layout->current_index++;
+  } else {
+    Item _item = {
+      .box = box,
+      .parent = layout->current_container,
+    };
+    sb_push(layout->items, _item);
+    result = layout->items + sb_count(layout->items) - 1;
+    layout->current_index++;
+    
+    if (layout->current_container) {
+      sb_push(layout->current_container->children, result);
+    }
+  }
   return result;
 }
 
 void ui_flex_begin(Layout *layout, Box box) {
-  Item _item = {
-    .box = box,
-    .parent = layout->current_container,
-    .children = sb_new(Item, 32),
-  };
-  
-  Item *item = null;
-  if (layout->current_container) {
-    item = layout->current_container->children + sb_count(layout->current_container->children);
-    sb_push(layout->current_container->children, _item);
-  } else {
-    item = alloc_struct(Item);
-    *item = _item;
-  }
-  
+  Item *item = layout_get_item(layout, box);
   layout->current_container = item;
   
-  if (!layout->root) {
-    layout->root = item;
+  switch (layout->mode) {
+    case Layout_Mode_RESOLVE_AUTOS: {
+      item->children = sb_new(Item, 8);
+    } break;
+    
+    case Layout_Mode_RESOLVE_STRETCHES: {
+      if (item->box.direction == Flex_VERTICAL) {
+        f32 fixed_height = 0;
+        i32 stretch_count = 0;
+        for (u32 child_index = 0;
+             child_index < sb_count(item->children);
+             child_index++) 
+        {
+          Item *child = item->children[child_index];
+          if (child->box.height == Flex_STRETCH) {
+            stretch_count++;
+          } else {
+            fixed_height += child->box.height;
+          }
+          
+          if (child->box.width == Flex_STRETCH) {
+            child->box.width = item->box.width;
+          }
+        }
+        
+        f32 height_per_stretch = (item->box.height - fixed_height)/stretch_count;
+        
+        V2 p = item->p;
+        
+        for (u32 child_index = 0;
+             child_index < sb_count(item->children);
+             child_index++) 
+        {
+          Item *child = item->children[child_index];
+          child->p = p;
+          if (child->box.height == Flex_STRETCH) {
+            child->box.height = height_per_stretch;
+          }
+          p.y -= child->box.height;
+        }
+      } else if (item->box.direction == Flex_HORIZONTAL) {
+        f32 fixed_width = 0;
+        i32 stretch_count = 0;
+        for (u32 child_index = 0;
+             child_index < sb_count(item->children);
+             child_index++) 
+        {
+          Item *child = item->children[child_index];
+          if (child->box.width == Flex_STRETCH) {
+            stretch_count++;
+          } else {
+            fixed_width += child->box.width;
+          }
+          
+          if (child->box.height == Flex_STRETCH) {
+            child->box.height = item->box.height;
+          }
+        }
+        
+        f32 width_per_stretch = (item->box.width - fixed_width)/stretch_count;
+        
+        V2 p = item->p;
+        for (u32 child_index = 0;
+             child_index < sb_count(item->children);
+             child_index++) 
+        {
+          Item *child = item->children[child_index];
+          child->p = p;
+          if (child->box.width == Flex_STRETCH) {
+            child->box.width = width_per_stretch;
+          }
+          p.x += child->box.width;
+        }
+      }
+    } break;
+    
+    case Layout_Mode_DRAW: {
+      V2 p = v2_add(item->p, layout->p);
+      draw_rect(layout->renderer, rect2_min_size(p, v2(item->box.width, -item->box.height)),
+                item->box.bg_color);
+    } break;
   }
 }
 
 void ui_flex_end(Layout *layout) {
+  Item *item = layout->current_container;
   layout->current_container = layout->current_container->parent;
+  
+  switch (layout->mode) {
+    case Layout_Mode_RESOLVE_AUTOS: {
+      f32 total_height = 0;
+      f32 total_width = 0;
+      
+      if (item->box.direction == Flex_VERTICAL) {
+        for (u32 child_index = 0;
+             child_index < sb_count(item->children);
+             child_index++) 
+        {
+          Item *child = item->children[child_index];
+          total_height += child->box.height;
+          
+          if (child->box.width > total_width) {
+            total_width = child->box.width;
+          }
+        }
+      } else if (item->box.direction == Flex_HORIZONTAL) {
+        for (u32 child_index = 0;
+             child_index < sb_count(item->children);
+             child_index++) 
+        {
+          Item *child = item->children[child_index];
+          total_width += child->box.width;
+          
+          if (child->box.height > total_height) {
+            total_height = child->box.height;
+          }
+        }
+      }
+      
+      if (item->box.height == Flex_AUTO) {
+        item->box.height = total_height;
+      }
+      if (item->box.width == Flex_AUTO) {
+        item->box.width = total_width;
+      }
+    } break;
+    
+    case Layout_Mode_RESOLVE_STRETCHES: {
+      
+    } break;
+    
+    case Layout_Mode_DRAW: {
+    } break;
+  }
 }
 
 bool ui_button(Layout *layout, String str, Box box) {
+  Item *item = layout_get_item(layout, box);
+  item->box.bg_color = 0xFF555555;
+  
+  switch (layout->mode) {
+    case Layout_Mode_RESOLVE_AUTOS: {
+      if (item->box.height == Flex_AUTO) {
+        item->box.height = layout->renderer->state.font->line_height;
+      }
+      if (item->box.width == Flex_AUTO) {
+        item->box.width = measure_string_width(layout->renderer, str) +
+          item->box.padding_left + item->box.padding_right;
+      }
+    } break;
+    
+    case Layout_Mode_DRAW: {
+      V2 p = v2_add(item->p, layout->p);
+      draw_rect(layout->renderer, rect2_min_size(p, v2(item->box.width, -item->box.height)),
+                item->box.bg_color);
+      draw_string(layout->renderer, str, v2(p.x + item->box.padding_left, p.y), 0xFFFFFFFF);
+    } break;
+  }
+  
   return false;
 }
 
 void ui_panel(Layout *layout, Box box) {
-  Item _item = {
-    .box = box,
-    .parent = layout->current_container,
-    .children = sb_new(Item, 32),
-  };
+  Item *item = layout_get_item(layout, box);
   
-  Item *item = null;
-  if (layout->current_container) {
-    item = layout->current_container->children + sb_count(layout->current_container->children);
-    sb_push(layout->current_container->children, _item);
-  } else {
-    item = alloc_struct(Item);
-    *item = _item;
-  }
-  
-  layout->current_container = item;
-  
-  if (!layout->root) {
-    layout->root = item;
+  switch (layout->mode) {
+    case Layout_Mode_DRAW: {
+      V2 p = v2_add(item->p, layout->p);
+      draw_rect(layout->renderer, rect2_min_size(p, v2(item->box.width, -item->box.height)),
+                item->box.bg_color);
+    } break;
   }
 }
 
 
-void resolve_autos(Item *item) {
-  for (u32 child_index = 0;
-       child_index < sb_count(item->children);
-       child_index++) 
-  {
-    Item *child = item->children + child_index;
-    resolve_autos(child);
-    assert(child->box.height != Flex_AUTO);
-  }
-  
-  if (item->box.direction == Flex_VERTICAL) {
-    f32 total_height = 0;
-    f32 total_width = 0;
-    
-    for (u32 child_index = 0;
-         child_index < sb_count(item->children);
-         child_index++) 
-    {
-      Item *child = item->children + child_index;
-      total_height += child->box.height;
-      
-      if (child->box.width > total_width) {
-        total_width = child->box.width;
-      }
-    }
-    
-    if (item->box.height == Flex_AUTO) {
-      item->box.height = total_height;
-    }
-    if (item->box.width == Flex_AUTO) {
-      item->box.width = total_width;
-    }
-  }
-}
-
-void resolve_flexes(Item *item, V2 *p, Renderer *r) {
-  if (item->box.direction == Flex_VERTICAL) {
-    if (item->box.bg_color == 0xFFFFFF00) {
-      int fsd = 32;
-    }
-    
-    draw_rect(r, rect2_min_size(*p, v2(item->box.width, item->box.height)),
-              item->box.bg_color);
-    
-    f32 fixed_height = 0;
-    i32 stretch_count = 0;
-    for (u32 child_index = 0;
-         child_index < sb_count(item->children);
-         child_index++) 
-    {
-      Item *child = item->children + child_index;
-      if (child->box.height == Flex_STRETCH) {
-        stretch_count++;
-      } else {
-        fixed_height += child->box.height;
-      }
-    }
-    
-    f32 height_per_stretch = (item->box.height - fixed_height)/stretch_count;
-    
-    for (u32 child_index = 0;
-         child_index < sb_count(item->children);
-         child_index++) 
-    {
-      Item *child = item->children + child_index;
-      if (child->box.height == Flex_STRETCH) {
-        child->box.height = height_per_stretch;
-      }
-      resolve_flexes(child, p, r);
-      p->y += child->box.height;
-    }
-  }
-}
-
-void foo(Renderer *r) {
-  Layout _l = make_layout();
-  Layout *l = &_l;
-  
+typedef void Layouting_Fn(Layout *, void *);
+void layouting_fn(Layout *l, void *ignored) {
+  Renderer *r = l->renderer;
   f32 line_height = 40;
-  ui_flex_begin(l, (Box){ 
-                .direction = Flex_VERTICAL,
-                .height = 768,
-                .bg_color = 0xFFFFFFFF,
-                });
-  {
-    ui_flex_begin(l, (Box){.height = Flex_STRETCH, .width = 100, .bg_color = 0xFFFF0000,});
-    ui_flex_end(l);
-    
-    ui_flex_begin(l, (Box){.height = Flex_AUTO, .bg_color = 0xFFFFFF00});
-    {
-      ui_flex_begin(l, (Box){.height = 50, .width = 200, .bg_color = 0xFF00FF00,});
-      ui_flex_end(l);
-      
-      ui_flex_begin(l, (Box){.height = 200, .width = 80, .bg_color = 0xFF0000FF,});
-      ui_flex_end(l);
-    }
-    ui_flex_end(l);
-  }
-  ui_flex_end(l);
   
-#if 0  
   ui_flex_begin(l, (Box){ 
                 .direction = Flex_VERTICAL,
-                .width = 1366,
-                .height = 768,
+                .width = r->window_size.x,
+                .height = r->window_size.y,
+                .bg_color = 0xFF000000,
                 });
   {
     ui_flex_begin(l, (Box){ 
                   .direction = Flex_HORIZONTAL,
-                  .height = line_height,
                   .bg_color = 0xFF0000FF,
+                  .width = Flex_STRETCH,
                   });
     {
       Box button_box = (Box){
@@ -258,18 +325,34 @@ void foo(Renderer *r) {
     ui_flex_begin(l, (Box){ 
                   .direction = Flex_HORIZONTAL,
                   .width = Flex_STRETCH,
+                  .height = Flex_STRETCH,
                   });
     {
-      ui_panel(l, (Box){ .bg_color = 0xFFFF0000, .width = Flex_STRETCH });
-      ui_panel(l, (Box){ .bg_color = 0xFF00FF00, .width = Flex_STRETCH });
+      ui_panel(l, (Box){ .bg_color = 0xFFFF0000, .width = Flex_STRETCH, .height = Flex_STRETCH });
+      ui_panel(l, (Box){ .bg_color = 0xFF00FF00, .width = Flex_STRETCH,
+               .height = Flex_STRETCH });
     }
     ui_flex_end(l);
   }
   ui_flex_end(l);
-#endif
-  
-  V2 p = v2_mul(r->window_size, -0.5f);
-  
-  resolve_autos(l->root);
-  resolve_flexes(l->root, &p, r);
+}
+
+void do_layout(Layout *layout, Layouting_Fn *fn, void *data) {
+  layout->mode = Layout_Mode_RESOLVE_AUTOS;
+  layout->current_index = 0;
+  layout->current_container = null;
+  fn(layout, data);
+  layout->mode = Layout_Mode_RESOLVE_STRETCHES;
+  layout->current_index = 0;
+  layout->current_container = null;
+  fn(layout, data);
+  layout->mode = Layout_Mode_DRAW;
+  layout->current_index = 0;
+  layout->current_container = null;
+  fn(layout, data);
+}
+
+void foo(Renderer *r) {
+  Layout layout = make_layout(r);
+  do_layout(&layout, layouting_fn, null);
 }
