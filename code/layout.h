@@ -1,4 +1,3 @@
-#include "lvl5_math.h"
 
 typedef enum {
   ui_VERTICAL,
@@ -25,14 +24,6 @@ typedef struct {
   u32 bg_color;
 } Box;
 
-typedef struct Item Item;
-typedef struct Item {
-  V2 p;
-  
-  Box box;
-  Item **children;
-  Item *parent;
-} Item;
 
 typedef enum {
   Layout_Mode_NONE,
@@ -40,6 +31,18 @@ typedef enum {
   Layout_Mode_RESOLVE_STRETCHES,
   Layout_Mode_DRAW,
 } Layout_Mode;
+
+
+typedef struct Item Item;
+typedef struct Item {
+  V2 p;
+  
+  Box box;
+  Item **children;
+  Item *parent;
+  
+  i32 id;
+} Item;
 
 typedef struct {
   V2 p;
@@ -49,34 +52,42 @@ typedef struct {
   
   Item *current_container;
   Renderer *renderer;
+  os_Input *input;
 } Layout;
 
-Layout make_layout(Renderer *r) {
+Layout make_layout(Renderer *r, os_Input *input) {
   Layout result = {
     .items = sb_new(Item, 32),
     .renderer = r,
+    .input = input,
     .p = v2(-r->window_size.x*0.5f, r->window_size.y*0.5f),
   };
   return result;
 }
 
-Item *layout_get_item(Layout *layout, Box box) {
+Item *layout_get_item(Layout *layout, Box box, i32 id) {
   Item *result = null;
-  if (sb_count(layout->items) > layout->current_index) {
-    result = layout->items + layout->current_index++;
-  } else {
+  
+  if (layout->mode == Layout_Mode_RESOLVE_AUTOS) {
     Item _item = {
       .box = box,
       .parent = layout->current_container,
+      .id = id,
     };
+    i32 self_index = sb_count(layout->items);
     sb_push(layout->items, _item);
-    result = layout->items + sb_count(layout->items) - 1;
+    result = layout->items + self_index;
     layout->current_index++;
     
     if (layout->current_container) {
       sb_push(layout->current_container->children, result);
     }
+  } else {
+    result = layout->items + layout->current_index++;
+    assert(result->id == id);
   }
+  
+  
   return result;
 }
 
@@ -89,9 +100,19 @@ V2 get_reported_dims(Item *item) {
   return result;
 }
 
+#define INVALID_ID -1
+Item NULL_ITEM = {
+  .id = INVALID_ID,
+};
 
-void ui_flex_begin(Layout *layout, Box box) {
-  Item *item = layout_get_item(layout, box);
+#define ui_flex_begin(layout, box) _ui_flex_begin(layout, box, __COUNTER__)
+void _ui_flex_begin(Layout *layout, Box box, i32 id) {
+  Item *item = layout_get_item(layout, box, id);
+  if (!item) {
+    NULL_ITEM.parent = layout->current_container;
+    layout->current_container = &NULL_ITEM;
+    return;
+  }
   layout->current_container = item;
   
   switch (layout->mode) {
@@ -185,6 +206,10 @@ void ui_flex_end(Layout *layout) {
   Item *item = layout->current_container;
   layout->current_container = layout->current_container->parent;
   
+  if (item == &NULL_ITEM) {
+    return;
+  }
+  
   switch (layout->mode) {
     case Layout_Mode_RESOLVE_AUTOS: {
       f32 total_height = 0;
@@ -237,9 +262,13 @@ void ui_flex_end(Layout *layout) {
   }
 }
 
-bool ui_button(Layout *layout, String str, Box box) {
-  Item *item = layout_get_item(layout, box);
+#define ui_button(layout, str, box) _ui_button(layout, str, box, __COUNTER__)
+bool _ui_button(Layout *layout, String str, Box box, i32 id) {
+  Item *item = layout_get_item(layout, box, id);
+  if (!item) return false;
   item->box.bg_color = 0xFF555555;
+  
+  bool result = false;
   
   switch (layout->mode) {
     case Layout_Mode_RESOLVE_AUTOS: {
@@ -254,17 +283,28 @@ bool ui_button(Layout *layout, String str, Box box) {
     
     case Layout_Mode_DRAW: {
       V2 p = v2_add(item->p, layout->p);
-      draw_rect(layout->renderer, rect2_min_size(p, v2(item->box.width, -item->box.height)),
-                item->box.bg_color);
+      V2 rect_p = v2(p.x, p.y - item->box.height);
+      Rect2 rect = rect2_min_size(rect_p, 
+                                  v2(item->box.width, item->box.height));
+      draw_rect(layout->renderer, rect, item->box.bg_color);
+      if (point_in_rect(layout->input->mouse.p, rect)) {
+        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
+        if (layout->input->mouse.left.went_down) {
+          result = true;
+        }
+      }
+      
       draw_string(layout->renderer, str, v2(p.x + item->box.padding_left, p.y), 0xFFFFFFFF);
     } break;
   }
   
-  return false;
+  return result;
 }
 
-void ui_panel(Layout *layout, Box box) {
-  Item *item = layout_get_item(layout, box);
+#define ui_panel(layout, box) _ui_panel(layout, box, __COUNTER__)
+void _ui_panel(Layout *layout, Box box, i32 id) {
+  Item *item = layout_get_item(layout, box, id);
+  if (!item) return;
   
   switch (layout->mode) {
     case Layout_Mode_DRAW: {
@@ -277,32 +317,24 @@ void ui_panel(Layout *layout, Box box) {
 
 
 typedef void Layouting_Fn(Layout *, void *);
-void layouting_fn(Layout *l, void *ignored) {
+void layouting_fn(Layout *l, Editor *editor) {
   Renderer *r = l->renderer;
   f32 line_height = 40;
   
-  ui_flex_begin(l, (Box){ 
-                .direction = ui_VERTICAL,
-                .width = r->window_size.x,
-                .height = r->window_size.y,
-                .bg_color = 0xFF000000,
-                });
-  {
-    ui_flex_begin(l, (Box){ 
-                  .direction = ui_HORIZONTAL,
-                  .bg_color = 0xFF0000FF,
-                  .width = Size_STRETCH,
-                  });
-    {
+  ui_flex_begin(l, ((Box){ 
+                    .direction = ui_VERTICAL,
+                    .width = r->window_size.x,
+                    .height = r->window_size.y,
+                    .bg_color = 0xFF000000,
+                    })); {
+    ui_flex_begin(l, ((Box){ 
+                      .direction = ui_HORIZONTAL,
+                      .bg_color = 0xFF0000FF,
+                      .width = Size_STRETCH,
+                      })); {
       Box button_box = (Box){
         .padding_left = 8,
         .padding_right = 8,
-      };
-      
-      Box submenu_button_box = (Box){
-        .padding_left = 8,
-        .padding_right = 8,
-        .width = Size_AUTO,
       };
       
       Box submenu_box = (Box){
@@ -313,71 +345,80 @@ void layouting_fn(Layout *l, void *ignored) {
         .align_content = ui_STRETCH,
       };
       
+      
+      l->renderer->state.z = 1.0f;
+      
       ui_flex_begin(l, (Box){0}); {
-        if (ui_button(l, const_string("file"), button_box) || true) {
-          ui_flex_begin(l, submenu_box);
-          {
-            ui_button(l, const_string("open"), submenu_button_box);
-            ui_button(l, const_string("save"), submenu_button_box);
-            ui_button(l, const_string("settings"), submenu_button_box);
-            ui_button(l, const_string("exit"), submenu_button_box);
-          }
-          ui_flex_end(l);
+        if (ui_button(l, const_string("file"), button_box)) {
+          editor->menu_index = 0;
+        }
+        if (editor->menu_index == 0) {
+          ui_flex_begin(l, submenu_box); {
+            ui_button(l, const_string("open"), button_box);
+            ui_button(l, const_string("save"), button_box);
+            ui_button(l, const_string("settings"), button_box);
+            ui_button(l, const_string("exit"), button_box);
+          } ui_flex_end(l);
         }
       } ui_flex_end(l);
       
       
       ui_flex_begin(l, (Box){0}); {
         if (ui_button(l, const_string("edit"), button_box)) {
-          ui_flex_begin(l, submenu_box);
-          {
+          editor->menu_index = 1;
+        }
+        if (editor->menu_index == 1) {
+          ui_flex_begin(l, submenu_box); {
             ui_button(l, const_string("copy"), button_box);
             ui_button(l, const_string("paste"), button_box);
             ui_button(l, const_string("cut"), button_box);
             ui_button(l, const_string("undo"), button_box);
             ui_button(l, const_string("redo"), button_box);
-          }
-          ui_flex_end(l);
+          } ui_flex_end(l);
         }
       } ui_flex_end(l);
       
       ui_flex_begin(l, (Box){0}); {
         if (ui_button(l, const_string("panels"), button_box)) {
-          ui_flex_begin(l, submenu_box);
-          {
+          editor->menu_index = 2;
+        }
+        if (editor->menu_index == 2) {
+          ui_flex_begin(l, submenu_box); {
             ui_button(l, const_string("foo"), button_box);
             ui_button(l, const_string("bar"), button_box);
             ui_button(l, const_string("baz"), button_box);
-          }
-          ui_flex_end(l);
+          } ui_flex_end(l);
         }
       } ui_flex_end(l);
       
       ui_flex_begin(l, (Box){0}); {
         if (ui_button(l, const_string("commands"), button_box)) {
-          ui_flex_begin(l, submenu_box);
-          {
+          editor->menu_index = 3;
+        }
+        if (editor->menu_index == 3) {
+          ui_flex_begin(l, submenu_box); {
             ui_button(l, const_string("run command"), button_box);
-          }
-          ui_flex_end(l);
+          } ui_flex_end(l);
         }
       } ui_flex_end(l);
-    }
-    ui_flex_end(l);
+      
+      l->renderer->state.z = 0;
+    } ui_flex_end(l);
     
-    ui_flex_begin(l, (Box){ 
-                  .direction = ui_HORIZONTAL,
-                  .width = Size_STRETCH,
-                  .height = Size_STRETCH,
-                  });
-    {
-      ui_panel(l, (Box){ .bg_color = 0x66FF0000, .width = Size_STRETCH, .height = Size_STRETCH });
-      ui_panel(l, (Box){ .bg_color = 0xFF00FF00, .width = Size_STRETCH,
-               .height = Size_STRETCH });
-    }
-    ui_flex_end(l);
-  }
-  ui_flex_end(l);
+    ui_flex_begin(l, ((Box){ 
+                      .direction = ui_HORIZONTAL,
+                      .width = Size_STRETCH,
+                      .height = Size_STRETCH,
+                      })); {
+      ui_panel(l, ((Box){ 
+                   .bg_color = 0xFFFF0000, 
+                   .width = Size_STRETCH, 
+                   .height = Size_STRETCH,
+                   }));
+      ui_panel(l, ((Box){ .bg_color = 0xFF00FF00, .width = Size_STRETCH,
+                   .height = Size_STRETCH }));
+    } ui_flex_end(l);
+  } ui_flex_end(l);
 }
 
 void do_layout(Layout *layout, Layouting_Fn *fn, void *data) {
@@ -395,7 +436,6 @@ void do_layout(Layout *layout, Layouting_Fn *fn, void *data) {
   fn(layout, data);
 }
 
-void foo(Renderer *r) {
-  Layout layout = make_layout(r);
-  do_layout(&layout, layouting_fn, null);
+void foo(Layout *layout, Renderer *r, os_Input *input, Editor *editor) {
+  do_layout(layout, layouting_fn, editor);
 }

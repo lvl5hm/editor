@@ -204,7 +204,22 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
   
   Quad_Instance *instances = sb_new(Quad_Instance, 10000);
   
-  for (u32 item_index = 0; item_index < sb_count(r->items); item_index++) {
+  u32 item_count = sb_count(r->items);
+  {
+    u32 i = 1;
+    while (i < item_count) {
+      Render_Item x = r->items[i];
+      u32 j = i - 1;
+      while (j >= 0 && r->items[j].state.z > x.state.z) {
+        r->items[j+1] = r->items[j];
+        j--;
+      }
+      r->items[j+1] = x;
+      i++;
+    }
+  }
+  
+  for (u32 item_index = 0; item_index < item_count; item_index++) {
     Render_Item *item = r->items + item_index;
     Font *font = item->state.font;
     
@@ -242,10 +257,10 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
           
           sb_push(instances, inst);
           
-          // token strings are guaranteed to have one additional char
-          // in the end for kerning
-          i8 advance = font_get_advance(font, s.data[char_index], s.data[char_index+1]);
-          offset.x += advance;
+          if (char_index != s.count - 1) {
+            i8 advance = font_get_advance(font, s.data[char_index], s.data[char_index+1]);
+            offset.x += advance;
+          }
         }
       } break;
       

@@ -11,10 +11,18 @@ typedef struct Quad_Instance {
   u32 color;
 } Quad_Instance;
 
+#if 0
+typedef struct {
+  Render_Layer_UI,
+  Render_Layer_OVERLAY,
+} Render_Layer;
+#endif
+
 typedef struct {
   Font *font;
   u32 color;
   M4 matrix;
+  f32 z;
 } Renderer_State;
 
 typedef enum {

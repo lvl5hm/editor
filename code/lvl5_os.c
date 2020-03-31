@@ -565,6 +565,17 @@ os_Window os_create_window(gl_Funcs *gl, i32 width, i32 height) {
 }
 
 
+V2 os_get_window_size(os_Window window) {
+  RECT rect;
+  b32 got_rect = GetClientRect(((win32_Window *)window)->window, &rect);
+  assert(got_rect);
+  V2 result = v2((f32)(rect.right - rect.left),
+                 (f32)(rect.bottom - rect.top));
+  return result;
+}
+
+
+
 void os_collect_messages(os_Window _window, os_Input *input) {
   for (i32 key_index = 0; key_index < os_Keycode_count; key_index++) {
     os_Button *key = input->keys + key_index;
@@ -626,8 +637,10 @@ void os_collect_messages(os_Window _window, os_Input *input) {
       case WM_MOUSEMOVE: {
         i32 x = GET_X_LPARAM(message.lParam);
         i32 y = GET_Y_LPARAM(message.lParam);
+        V2 ws = os_get_window_size(_window);
         
-        input->mouse.p = v2_i(x, y);
+        input->mouse.p = v2_sub(v2_i(x, y), v2_mul(ws, 0.5f));
+        input->mouse.p.y *= -1;
       } break;
       
       case WM_KEYDOWN:
@@ -722,16 +735,6 @@ void os_log(String str) {
   char *cstring = to_c_string(str);
   OutputDebugStringA(cstring);
 }
-
-V2 os_get_window_size(os_Window window) {
-  RECT rect;
-  b32 got_rect = GetClientRect(((win32_Window *)window)->window, &rect);
-  assert(got_rect);
-  V2 result = v2((f32)(rect.right - rect.left),
-                 (f32)(rect.bottom - rect.top));
-  return result;
-}
-
 
 #define os_entry_point() int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 

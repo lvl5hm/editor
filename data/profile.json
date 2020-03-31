@@ -1,26 +1,4 @@
 [
-  {"name": "make_empty_buffer", "cat": "PERF", "ts": 81876381205388, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "buffer_insert_string", "cat": "PERF", "ts": 81876402033802, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "buffer_changed", "cat": "PERF", "ts": 81876402129900, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "buffer_parse", "cat": "PERF", "ts": 81876402130428, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "add_scope", "cat": "PERF", "ts": 81876402146766, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "add_scope", "cat": "PERF", "ts": 81876402149210, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_tokenize", "cat": "PERF", "ts": 81876402150458, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "set_color", "cat": "PERF", "ts": 81876402168896, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "set_color", "cat": "PERF", "ts": 81876402168966, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_tokenize", "cat": "PERF", "ts": 81876402169592, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "parse_program", "cat": "PERF", "ts": 81876402170298, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "parse_program", "cat": "PERF", "ts": 81876402170376, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_parse", "cat": "PERF", "ts": 81876402170422, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_get_dependent_buffers", "cat": "PERF", "ts": 81876402170460, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "buffer_get_dependent_buffers", "cat": "PERF", "ts": 81876402172452, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_changed", "cat": "PERF", "ts": 81876402172528, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "buffer_insert_string", "cat": "PERF", "ts": 81876402172560, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "set_cursor", "cat": "PERF", "ts": 81876402173066, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "set_cursor", "cat": "PERF", "ts": 81876402173240, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "make_empty_buffer", "cat": "PERF", "ts": 81876402173262, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 81876414982584, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 81876416131464, "ph": "E", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 81876416245332, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 81876416457718, "ph": "E", "pid": 1, "tid": 1}
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 407859391392645, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 407859391667321, "ph": "E", "pid": 1, "tid": 1}
 ]

@@ -1,6 +1,8 @@
 #ifndef EDITOR_H
 #include "buffer.h"
 #include "common.h"
+#include "renderer.h"
+#include "lvl5_stretchy_buffer.h"
 
 typedef enum {
   Command_NONE,
@@ -89,6 +91,65 @@ typedef struct {
   V2 scroll;
 } Panel;
 
+
+
+
+typedef enum {
+  ui_VERTICAL,
+  ui_HORIZONTAL,
+  ui_STRETCH,
+  ui_IGNORE_LAYOUT,
+} ui_Enum;
+
+#define Size_STRETCH INFINITY
+#define Size_AUTO 0
+
+typedef struct {
+  ui_Enum direction;
+  ui_Enum align_content;
+  ui_Enum position;
+  
+  f32 width;
+  f32 height;
+  f32 padding_left;
+  f32 padding_right;
+  f32 padding_top;
+  f32 padding_bottom;
+  
+  u32 bg_color;
+} Box;
+
+
+typedef enum {
+  Layout_Mode_NONE,
+  Layout_Mode_RESOLVE_AUTOS,
+  Layout_Mode_RESOLVE_STRETCHES,
+  Layout_Mode_DRAW,
+} Layout_Mode;
+
+
+typedef struct Item Item;
+typedef struct Item {
+  V2 p;
+  
+  Box box;
+  Item **children;
+  Item *parent;
+  
+  i32 id;
+} Item;
+
+typedef struct {
+  V2 p;
+  Layout_Mode mode;
+  Item items[512];
+  
+  Item *current_container;
+  Renderer *renderer;
+  os_Input *input;
+} Layout;
+
+
 typedef struct Editor {
   Buffer *buffers;
   Panel *panels;
@@ -100,6 +161,7 @@ typedef struct Editor {
   i32 generation;
   
   i32 menu_index;
+  Layout layout;
 } Editor;
 
 #include "renderer.h"
