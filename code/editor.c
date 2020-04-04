@@ -10,274 +10,303 @@ Layout make_layout(Renderer *r, os_Input *input) {
   return result;
 }
 
-Item *layout_get_item(Layout *layout, Box box, i32 id) {
-  Item *result = layout->items + id;;
+
+#define ui_id_loop_func(l, f) (ui_Id){.call = __COUNTER__, .loop = l, .func = f}
+#define ui_id_loop(l) ui_id_loop_func(l, 0)
+#define ui_id_func(f) ui_id_loop_func(0, f)
+#define ui_id() ui_id_loop_func(0, 0)
+
+bool ui_ids_equal(ui_Id a, ui_Id b) {
+  bool result = a.call == b.call && a.loop == b.loop && a.func == b.func;
+  return result;
+}
+
+u32 hash_ui_id(ui_Id id) {
+  u32 result = (id.call) ^ (id.loop << 7) ^ (id.func << 13);
+  return result;
+}
+
+u32 get_ui_item_index(Layout *layout, ui_Id id) {
+  u32 hash = hash_ui_id(id);
+  u32 result = 0;
   
-  if (layout->mode == Layout_Mode_RESOLVE_AUTOS) {
-    result->box = box;
-    result->parent = layout->current_container;
-    result->id = id;
+  while (true) {
+    hash = hash % array_count(layout->keys);
+    ui_Id key = layout->keys[hash];
     
-    if (layout->current_container) {
-      sb_push(layout->current_container->children, result);
-    }
-  } else {
-    if (result->id != id) {
-      result = null;
+    if (!layout->occupancy[hash]) {
+      result = hash;
+      break;
+    } else if (ui_ids_equal(key, id)) {
+      result = hash;
+      break;
+    } else {
+      hash++;
     }
   }
   
+  return result;
+}
+
+Item *layout_get_item(Layout *layout, Item_Type type, Style style, ui_Id id) {
+  u32 item_index = get_ui_item_index(layout, id);
+  Item *result = layout->values + item_index;
+  
+  //if (!layout->occupancy[item_index]) {
+  result->style = style;
+  result->parent = layout->current_container;
+  result->id = id;
+  result->type = type;
+  
+  if (layout->current_container) {
+    sb_push(layout->current_container->children, result);
+  }
+  
+  layout->occupancy[item_index] = true;
+  layout->keys[item_index] = id;
+  //}
   
   return result;
 }
 
 V2 get_reported_dims(Item *item) {
-  V2 result = v2(item->box.width, item->box.height);
-  if (item->box.position == ui_IGNORE_LAYOUT) {
+  V2 result = v2(item->style.width, item->style.height);
+  if (item->style.position == ui_IGNORE_LAYOUT) {
     result = v2_zero();
   }
   
   return result;
 }
 
-#define INVALID_ID -1
-Item NULL_ITEM = {
-  .id = INVALID_ID,
-};
-
-#define ui_flex_begin(layout, box) _ui_flex_begin(layout, box, __COUNTER__)
-void _ui_flex_begin(Layout *layout, Box box, i32 id) {
-  Item *item = layout_get_item(layout, box, id);
-  if (!item) {
-    NULL_ITEM.parent = layout->current_container;
-    layout->current_container = &NULL_ITEM;
-    return;
-  }
+void ui_flex_begin(Layout *layout, ui_Id id, Style style) {
+  Item *item = layout_get_item(layout, Item_Type_FLEX, style, id);
   layout->current_container = item;
-  
-  switch (layout->mode) {
-    case Layout_Mode_RESOLVE_AUTOS: {
-      item->children = sb_new(Item, 8);
-    } break;
-    
-    case Layout_Mode_RESOLVE_STRETCHES: {
-      if (item->box.direction == ui_VERTICAL) {
-        f32 fixed_height = 0;
-        i32 stretch_count = 0;
-        for (u32 child_index = 0;
-             child_index < sb_count(item->children);
-             child_index++) 
-        {
-          Item *child = item->children[child_index];
-          
-          if (child->box.height == Size_STRETCH) {
-            stretch_count++;
-          } else {
-            fixed_height += child->box.height;
-          }
-          
-          if (child->box.width == Size_STRETCH ||
-              item->box.align_content == ui_STRETCH) {
-            child->box.width = item->box.width;
-          }
-        }
-        
-        f32 height_per_stretch = (item->box.height - fixed_height)/stretch_count;
-        
-        V2 p = item->p;
-        
-        for (u32 child_index = 0;
-             child_index < sb_count(item->children);
-             child_index++) 
-        {
-          Item *child = item->children[child_index];
-          child->p = p;
-          if (child->box.height == Size_STRETCH) {
-            child->box.height = height_per_stretch;
-          }
-          p.y -= child->box.height;
-        }
-      } else if (item->box.direction == ui_HORIZONTAL) {
-        f32 fixed_width = 0;
-        i32 stretch_count = 0;
-        for (u32 child_index = 0;
-             child_index < sb_count(item->children);
-             child_index++) 
-        {
-          Item *child = item->children[child_index];
-          
-          if (child->box.width == Size_STRETCH) {
-            stretch_count++;
-          } else {
-            fixed_width += child->box.width;
-          }
-          
-          if (child->box.height == Size_STRETCH) {
-            child->box.height = item->box.height;
-          }
-        }
-        
-        f32 width_per_stretch = (item->box.width - fixed_width)/stretch_count;
-        
-        V2 p = item->p;
-        for (u32 child_index = 0;
-             child_index < sb_count(item->children);
-             child_index++) 
-        {
-          Item *child = item->children[child_index];
-          child->p = p;
-          if (child->box.width == Size_STRETCH) {
-            child->box.width = width_per_stretch;
-          }
-          p.x += child->box.width;
-        }
-      }
-    } break;
-    
-    case Layout_Mode_DRAW: {
-      V2 p = v2_add(item->p, layout->p);
-      draw_rect(layout->renderer, rect2_min_size(p, v2(item->box.width, -item->box.height)),
-                item->box.bg_color);
-    } break;
-  }
+  item->children = sb_new(Item, 8);
 }
 
 void ui_flex_end(Layout *layout) {
   Item *item = layout->current_container;
-  layout->current_container = layout->current_container->parent;
-  
-  if (item == &NULL_ITEM) {
-    return;
+  if (layout->current_container->parent) {
+    layout->current_container = layout->current_container->parent;
   }
   
-  switch (layout->mode) {
-    case Layout_Mode_RESOLVE_AUTOS: {
-      f32 total_height = 0;
-      f32 total_width = 0;
+  f32 total_height = 0;
+  f32 total_width = 0;
+  
+  if (item->style.direction == ui_VERTICAL) {
+    for (u32 child_index = 0;
+         child_index < sb_count(item->children);
+         child_index++) 
+    {
+      Item *child = item->children[child_index];
+      V2 child_dims = get_reported_dims(child);
       
-      if (item->box.direction == ui_VERTICAL) {
-        for (u32 child_index = 0;
-             child_index < sb_count(item->children);
-             child_index++) 
-        {
-          Item *child = item->children[child_index];
-          V2 child_dims = get_reported_dims(child);
-          
-          total_height += child_dims.y;
-          
-          if (child_dims.x > total_width) {
-            total_width = child_dims.x;
-          }
-        }
-      } else if (item->box.direction == ui_HORIZONTAL) {
-        for (u32 child_index = 0;
-             child_index < sb_count(item->children);
-             child_index++) 
-        {
-          Item *child = item->children[child_index];
-          V2 child_dims = get_reported_dims(child);
-          
-          total_width += child_dims.x;
-          
-          if (child_dims.y > total_height) {
-            total_height = child_dims.y;
-          }
-        }
-      }
+      total_height += child_dims.y;
       
-      if (item->box.height == Size_AUTO) {
-        item->box.height = total_height;
+      if (child_dims.x > total_width) {
+        total_width = child_dims.x;
       }
-      if (item->box.width == Size_AUTO) {
-        item->box.width = total_width;
-      }
-    } break;
-    
-    case Layout_Mode_RESOLVE_STRETCHES: {
+    }
+  } else if (item->style.direction == ui_HORIZONTAL) {
+    for (u32 child_index = 0;
+         child_index < sb_count(item->children);
+         child_index++) 
+    {
+      Item *child = item->children[child_index];
+      V2 child_dims = get_reported_dims(child);
       
-    } break;
-    
-    case Layout_Mode_DRAW: {
-    } break;
+      total_width += child_dims.x;
+      
+      if (child_dims.y > total_height) {
+        total_height = child_dims.y;
+      }
+    }
+  }
+  
+  if (item->style.height == Size_AUTO) {
+    item->style.height = total_height;
+  }
+  if (item->style.width == Size_AUTO) {
+    item->style.width = total_width;
   }
 }
 
-#define ui_button(layout, str, box) _ui_button(layout, str, box, __COUNTER__)
-bool _ui_button(Layout *layout, String str, Box box, i32 id) {
-  Item *item = layout_get_item(layout, box, id);
-  if (!item) return false;
-  item->box.bg_color = 0xFF555555;
+bool ui_button(Layout *layout, ui_Id id, String str, Style style) {
+  Item *item = layout_get_item(layout, Item_Type_BUTTON, style, id);
+  item->style.bg_color = 0xFF555555;
+  item->label = str;
   
-  bool result = false;
+  bool result = item->is_active;
+  item->is_active = false;
   
-  switch (layout->mode) {
-    case Layout_Mode_RESOLVE_AUTOS: {
-      if (item->box.height == Size_AUTO) {
-        item->box.height = layout->renderer->state.font->line_height;
-      }
-      if (item->box.width == Size_AUTO) {
-        item->box.width = measure_string_width(layout->renderer, str) +
-          item->box.padding_left + item->box.padding_right;
-      }
-    } break;
-    
-    case Layout_Mode_DRAW: {
-      V2 p = v2_add(item->p, layout->p);
-      V2 rect_p = v2(p.x, p.y - item->box.height);
-      Rect2 rect = rect2_min_size(rect_p, 
-                                  v2(item->box.width, item->box.height));
-      draw_rect(layout->renderer, rect, item->box.bg_color);
-      if (point_in_rect(layout->input->mouse.p, rect)) {
-        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
-        if (layout->input->mouse.left.went_down) {
-          result = true;
-        }
-      }
-      
-      draw_string(layout->renderer, str, v2(p.x + item->box.padding_left, p.y), 0xFFFFFFFF);
-    } break;
+  if (item->style.height == Size_AUTO) {
+    item->style.height = layout->renderer->state.font->line_height;
+  }
+  if (item->style.width == Size_AUTO) {
+    item->style.width = measure_string_width(layout->renderer, str) +
+      item->style.padding_left + item->style.padding_right;
   }
   
   return result;
 }
 
-#define ui_panel(layout, box) _ui_panel(layout, box, __COUNTER__)
-void _ui_panel(Layout *layout, Box box, i32 id) {
-  Item *item = layout_get_item(layout, box, id);
-  if (!item) return;
-  
-  switch (layout->mode) {
-    case Layout_Mode_DRAW: {
-      V2 p = v2_add(item->p, layout->p);
-      draw_rect(layout->renderer, rect2_min_size(p, v2(item->box.width, -item->box.height)),
-                item->box.bg_color);
-    } break;
-  }
+void ui_panel(Layout *layout, ui_Id id, Style style) {
+  Item *item = layout_get_item(layout, Item_Type_PANEL, style, id);
+  assert(style.width != Size_AUTO);
+  assert(style.height != Size_AUTO);
 }
 
-
-typedef void Layouting_Fn(Layout *, void *);
-void layouting_fn(Layout *l, Editor *editor) {
-  Renderer *r = l->renderer;
-  f32 line_height = 40;
+void traverse_layout(Layout *layout, Item *item) {
+  f32 prev_z = layout->renderer->state.z;
+  if (item->style.layer)
+    layout->renderer->state.z = item->style.layer;
   
-  ui_flex_begin(l, ((Box){ 
-                    .direction = ui_VERTICAL,
-                    .width = r->window_size.x,
-                    .height = r->window_size.y,
-                    .bg_color = 0xFF000000,
-                    })); {
-    ui_flex_begin(l, ((Box){ 
-                      .direction = ui_HORIZONTAL,
-                      .bg_color = 0xFF0000FF,
-                      .width = Size_STRETCH,
-                      })); {
-      Box button_box = (Box){
+  switch (item->type) {
+    case Item_Type_FLEX: {
+      V2 p = v2_add(item->p, layout->p);
+      p.y -= item->style.height;
+      Rect2 rect = rect2_min_size(p, v2(item->style.width, item->style.height));
+      draw_rect(layout->renderer, rect, item->style.bg_color);
+    } break;
+    case Item_Type_BUTTON: {
+      V2 p = v2_add(item->p, layout->p);
+      V2 rect_p = v2(p.x, p.y - item->style.height);
+      Rect2 rect = rect2_min_size(rect_p, 
+                                  v2(item->style.width, item->style.height));
+      draw_rect(layout->renderer, rect, item->style.bg_color);
+      
+      os_Button left = layout->input->mouse.left;
+      if (point_in_rect(layout->input->mouse.p, rect)) {
+        layout->hot = item->id;
+        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
+      }
+      if (ui_ids_equal(layout->active, item->id)) {
+        if (left.went_up) {
+          if (ui_ids_equal(layout->hot, item->id)) {
+            item->is_active = true;
+          }
+          layout->active = INVALID_UI_ID;
+        }
+      } else if (ui_ids_equal(layout->hot, item->id)) {
+        if (left.went_down) {
+          layout->active = item->id;
+        }
+      }
+      
+      draw_string(layout->renderer, item->label, v2(p.x + item->style.padding_left, p.y), 0xFFFFFFFF);
+    } break;
+    
+    case Item_Type_PANEL: {
+      V2 p = v2_add(item->p, layout->p);
+      draw_rect(layout->renderer, rect2_min_size(p, v2(item->style.width, -item->style.height)),
+                item->style.bg_color);
+    } break;
+  }
+  
+  if (item->children && sb_count(item->children)) {
+    if (item->style.direction == ui_VERTICAL) {
+      f32 fixed_height = 0;
+      i32 stretch_count = 0;
+      for (u32 child_index = 0;
+           child_index < sb_count(item->children);
+           child_index++) 
+      {
+        Item *child = item->children[child_index];
+        
+        if (child->style.height == Size_STRETCH) {
+          stretch_count++;
+        } else {
+          fixed_height += child->style.height;
+        }
+        
+        if (child->style.width == Size_STRETCH ||
+            item->style.align_content == ui_STRETCH) {
+          child->style.width = item->style.width;
+        }
+      }
+      
+      f32 height_per_stretch = (item->style.height - fixed_height)/stretch_count;
+      
+      V2 p = item->p;
+      
+      for (u32 child_index = 0;
+           child_index < sb_count(item->children);
+           child_index++) 
+      {
+        Item *child = item->children[child_index];
+        child->p = p;
+        if (child->style.height == Size_STRETCH) {
+          child->style.height = height_per_stretch;
+        }
+        p.y -= child->style.height;
+        
+        traverse_layout(layout, child);
+      }
+    } else if (item->style.direction == ui_HORIZONTAL) {
+      f32 fixed_width = 0;
+      i32 stretch_count = 0;
+      for (u32 child_index = 0;
+           child_index < sb_count(item->children);
+           child_index++) 
+      {
+        Item *child = item->children[child_index];
+        
+        if (child->style.width == Size_STRETCH) {
+          stretch_count++;
+        } else {
+          fixed_width += child->style.width;
+        }
+        
+        if (child->style.height == Size_STRETCH) {
+          child->style.height = item->style.height;
+        }
+      }
+      
+      f32 width_per_stretch = (item->style.width - fixed_width)/stretch_count;
+      
+      V2 p = item->p;
+      for (u32 child_index = 0;
+           child_index < sb_count(item->children);
+           child_index++) 
+      {
+        Item *child = item->children[child_index];
+        child->p = p;
+        if (child->style.width == Size_STRETCH) {
+          child->style.width = width_per_stretch;
+        }
+        p.x += child->style.width;
+        
+        traverse_layout(layout, child);
+      }
+    }
+  }
+  
+  layout->renderer->state.z = prev_z;
+}
+
+void foo(Layout *layout, Renderer *r, os_Input *input, Editor *editor) {
+  f32 line_height = 40;
+  Layout *l = layout;
+  l->p = v2(-r->window_size.x*0.5f, r->window_size.y*0.5f);
+  
+  ui_flex_begin(l, ui_id(), (Style){ 
+                .direction = ui_VERTICAL,
+                .width = r->window_size.x,
+                .height = r->window_size.y,
+                .bg_color = 0xFF000000,
+                }); {
+    ui_flex_begin(l, ui_id(), (Style){ 
+                  .direction = ui_HORIZONTAL,
+                  .bg_color = 0xFF0000FF,
+                  .width = Size_STRETCH,
+                  .layer = 1,
+                  }); {
+      Style button_box = (Style){
         .padding_left = 8,
         .padding_right = 8,
       };
       
-      Box submenu_box = (Box){
+      Style submenu_box = (Style){
         .position = ui_IGNORE_LAYOUT,
         .direction = ui_VERTICAL,
         .width = Size_AUTO,
@@ -286,58 +315,41 @@ void layouting_fn(Layout *l, Editor *editor) {
       };
       
       
-      l->renderer->state.z = 1.0f;
-      
-      ui_flex_begin(l, (Box){0}); {
-        if (ui_button(l, const_string("file"), button_box)) {
-          editor->menu_index = 0;
-        }
-        if (editor->menu_index == 0) {
-          ui_flex_begin(l, submenu_box); {
-            ui_button(l, const_string("open"), button_box);
-            ui_button(l, const_string("save"), button_box);
-            ui_button(l, const_string("settings"), button_box);
-            ui_button(l, const_string("exit"), button_box);
-          } ui_flex_end(l);
-        }
-      } ui_flex_end(l);
-      
-      
-      ui_flex_begin(l, (Box){0}); {
-        if (ui_button(l, const_string("edit"), button_box)) {
+      ui_flex_begin(l, ui_id(), (Style){0}); {
+        if (ui_button(l, ui_id(), const_string("edit"), button_box)) {
           editor->menu_index = 1;
         }
         if (editor->menu_index == 1) {
-          ui_flex_begin(l, submenu_box); {
-            ui_button(l, const_string("copy"), button_box);
-            ui_button(l, const_string("paste"), button_box);
-            ui_button(l, const_string("cut"), button_box);
-            ui_button(l, const_string("undo"), button_box);
-            ui_button(l, const_string("redo"), button_box);
+          ui_flex_begin(l, ui_id(), submenu_box); {
+            ui_button(l, ui_id(), const_string("copy"), button_box);
+            ui_button(l, ui_id(), const_string("paste"), button_box);
+            ui_button(l, ui_id(), const_string("cut"), button_box);
+            ui_button(l, ui_id(), const_string("undo"), button_box);
+            ui_button(l, ui_id(), const_string("redo"), button_box);
           } ui_flex_end(l);
         }
       } ui_flex_end(l);
       
-      ui_flex_begin(l, (Box){0}); {
-        if (ui_button(l, const_string("panels"), button_box)) {
+      ui_flex_begin(l, ui_id(), (Style){0}); {
+        if (ui_button(l, ui_id(), const_string("panels"), button_box)) {
           editor->menu_index = 2;
         }
         if (editor->menu_index == 2) {
-          ui_flex_begin(l, submenu_box); {
-            ui_button(l, const_string("foo"), button_box);
-            ui_button(l, const_string("bar"), button_box);
-            ui_button(l, const_string("baz"), button_box);
+          ui_flex_begin(l, ui_id(), submenu_box); {
+            ui_button(l, ui_id(), const_string("foo"), button_box);
+            ui_button(l, ui_id(), const_string("bar"), button_box);
+            ui_button(l, ui_id(), const_string("baz"), button_box);
           } ui_flex_end(l);
         }
       } ui_flex_end(l);
       
-      ui_flex_begin(l, (Box){0}); {
-        if (ui_button(l, const_string("commands"), button_box)) {
+      ui_flex_begin(l, ui_id(), (Style){0}); {
+        if (ui_button(l, ui_id(), const_string("commands"), button_box)) {
           editor->menu_index = 3;
         }
         if (editor->menu_index == 3) {
-          ui_flex_begin(l, submenu_box); {
-            ui_button(l, const_string("run command"), button_box);
+          ui_flex_begin(l, ui_id(), submenu_box); {
+            ui_button(l, ui_id(), const_string("run command"), button_box);
           } ui_flex_end(l);
         }
       } ui_flex_end(l);
@@ -345,43 +357,23 @@ void layouting_fn(Layout *l, Editor *editor) {
       l->renderer->state.z = 0;
     } ui_flex_end(l);
     
-    ui_flex_begin(l, ((Box){ 
-                      .direction = ui_HORIZONTAL,
-                      .width = Size_STRETCH,
-                      .height = Size_STRETCH,
-                      })); {
-      ui_panel(l, ((Box){ 
-                   .bg_color = 0xFFFF0000, 
-                   .width = Size_STRETCH, 
-                   .height = Size_STRETCH,
-                   }));
-      ui_panel(l, ((Box){ .bg_color = 0xFF00FF00, .width = Size_STRETCH,
-                   .height = Size_STRETCH }));
+    ui_flex_begin(l, ui_id(), ((Style){ 
+                               .direction = ui_HORIZONTAL,
+                               .width = Size_STRETCH,
+                               .height = Size_STRETCH,
+                               })); {
+      ui_panel(l, ui_id(), ((Style){ 
+                            .bg_color = 0xFFFF0000, 
+                            .width = Size_STRETCH, 
+                            .height = Size_STRETCH,
+                            }));
+      ui_panel(l, ui_id(), ((Style){ .bg_color = 0xFF00FF00, .width = Size_STRETCH,
+                            .height = Size_STRETCH }));
     } ui_flex_end(l);
   } ui_flex_end(l);
-}
-
-void do_layout(Layout *layout, Layouting_Fn *fn, void *data) {
-  layout->p = v2_zero();
-  layout->current_container = null;
-  V2 ws = layout->renderer->window_size;
-  layout->p = v2(-ws.x*0.5f, ws.y*0.5f),
   
-  layout->mode = Layout_Mode_RESOLVE_AUTOS;
-  layout->current_container = null;
-  fn(layout, data);
   
-  layout->mode = Layout_Mode_RESOLVE_STRETCHES;
-  layout->current_container = null;
-  fn(layout, data);
-  
-  layout->mode = Layout_Mode_DRAW;
-  layout->current_container = null;
-  fn(layout, data);
-}
-
-void foo(Layout *layout, Renderer *r, os_Input *input, Editor *editor) {
-  do_layout(layout, layouting_fn, editor);
+  traverse_layout(l, l->current_container);
 }
 
 

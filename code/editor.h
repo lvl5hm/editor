@@ -117,36 +117,67 @@ typedef struct {
   f32 padding_bottom;
   
   u32 bg_color;
-} Box;
+  f32 layer;
+} Style;
 
 
+#if 0
 typedef enum {
   Layout_Mode_NONE,
-  Layout_Mode_RESOLVE_AUTOS,
   Layout_Mode_RESOLVE_STRETCHES,
   Layout_Mode_DRAW,
 } Layout_Mode;
+#endif
 
+
+typedef enum {
+  Item_Type_NONE,
+  Item_Type_FLEX,
+  Item_Type_BUTTON,
+  Item_Type_PANEL,
+} Item_Type;
+
+typedef struct {
+  u8 func;
+  u8 loop;
+  u8 call;
+} ui_Id;
+
+#define INVALID_UI_ID (ui_Id){.call = 255, .loop = 255}
 
 typedef struct Item Item;
 typedef struct Item {
   V2 p;
+  V2 size;
   
-  Box box;
+  ui_Id id;
+  Item_Type type;
+  Style style;
   Item **children;
   Item *parent;
   
-  i32 id;
+  // TODO(lvl5): this stuff should be separated
+  bool is_active;
+  String label;
 } Item;
+
+#define LAYOUT_ITEM_MAX 512
 
 typedef struct {
   V2 p;
-  Layout_Mode mode;
-  Item items[512];
+  //Layout_Mode mode;
+  
+  ui_Id keys[LAYOUT_ITEM_MAX];
+  Item values[LAYOUT_ITEM_MAX];
+  bool occupancy[LAYOUT_ITEM_MAX];
+  u32 count;
   
   Item *current_container;
   Renderer *renderer;
   os_Input *input;
+  
+  ui_Id hot;
+  ui_Id active;
 } Layout;
 
 
