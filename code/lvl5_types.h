@@ -41,5 +41,20 @@ typedef u64 Mem_Size;
 
 #define globalvar static
 
+bool flag_is_set(u64 flags, u64 f) {
+  bool result = (bool)(flags & f);
+  return result;
+}
+
+u64 flag_add(u64 flags, u64 f) {
+  flags |= f;
+  return flags;
+}
+
+u64 flag_remove(u64 flags, u64 f) {
+  flags &= ~f;
+  return flags;
+}
+
 #define LVL5_TYPES
 #endif

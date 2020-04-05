@@ -94,20 +94,15 @@ typedef struct {
 
 
 
-typedef enum {
-  ui_VERTICAL,
-  ui_HORIZONTAL,
-  ui_STRETCH,
-  ui_IGNORE_LAYOUT,
-} ui_Enum;
-
-#define Size_STRETCH INFINITY
-#define Size_AUTO 0
+#define ui_SIZE_STRETCH INFINITY
+#define ui_SIZE_AUTO 0
+#define ui_HORIZONTAL (1 << 0)
+#define ui_ALIGN_STRETCH (1 << 1)
+#define ui_IGNORE_LAYOUT (1 << 2)
+#define ui_HIDDEN (1 << 3)
 
 typedef struct {
-  ui_Enum direction;
-  ui_Enum align_content;
-  ui_Enum position;
+  u64 flags;
   
   f32 width;
   f32 height;
@@ -121,20 +116,14 @@ typedef struct {
 } Style;
 
 
-#if 0
-typedef enum {
-  Layout_Mode_NONE,
-  Layout_Mode_RESOLVE_STRETCHES,
-  Layout_Mode_DRAW,
-} Layout_Mode;
-#endif
-
 
 typedef enum {
   Item_Type_NONE,
   Item_Type_FLEX,
   Item_Type_BUTTON,
   Item_Type_PANEL,
+  Item_Type_DROPDOWN_MENU,
+  Item_Type_MENU_TOGGLE_BUTTON,
 } Item_Type;
 
 typedef struct {
@@ -143,42 +132,44 @@ typedef struct {
   u8 call;
 } ui_Id;
 
-#define INVALID_UI_ID (ui_Id){.call = 255, .loop = 255}
+#define INVALID_UI_ID (ui_Id){.func=0, .call = 0, .loop = 0}
 
-typedef struct Item Item;
-typedef struct Item {
+typedef struct ui_Item ui_Item;
+typedef struct ui_Item {
   V2 p;
-  V2 size;
   
-  ui_Id id;
   Item_Type type;
-  Style style;
-  Item **children;
-  Item *parent;
+  ui_Id state_id;
   
-  // TODO(lvl5): this stuff should be separated
+  Style style;
+  ui_Item *children;
+  ui_Item *parent;
+} ui_Item;
+
+
+#define LAYOUT_BUTTON_MAX 512
+
+typedef struct {
   bool is_active;
   String label;
-} Item;
-
-#define LAYOUT_ITEM_MAX 512
+} ui_State;
 
 typedef struct {
   V2 p;
-  //Layout_Mode mode;
   
-  ui_Id keys[LAYOUT_ITEM_MAX];
-  Item values[LAYOUT_ITEM_MAX];
-  bool occupancy[LAYOUT_ITEM_MAX];
+  ui_Id keys[LAYOUT_BUTTON_MAX];
+  ui_State values[LAYOUT_BUTTON_MAX];
+  bool occupancy[LAYOUT_BUTTON_MAX];
   u32 count;
   
-  Item *current_container;
+  ui_Item *current_container;
+  
   Renderer *renderer;
   os_Input *input;
   
   ui_Id hot;
   ui_Id active;
-} Layout;
+} ui_Layout;
 
 
 typedef struct Editor {
@@ -192,7 +183,7 @@ typedef struct Editor {
   i32 generation;
   
   i32 menu_index;
-  Layout layout;
+  ui_Layout layout;
 } Editor;
 
 #include "renderer.h"

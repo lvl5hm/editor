@@ -1129,8 +1129,8 @@ V4 lerp_v4(V4 a, V4 b, V4 c) {
 
 
 // NOTE(lvl5): misc
-b32 point_in_circle(V2 point, V2 origin, f32 radius) {
-  b32 result = false;
+bool point_in_circle(V2 point, V2 origin, f32 radius) {
+  bool result = false;
   
   f32 dist_sqr = v2_length_sqr(v2_sub(point, origin));
   if (dist_sqr < sqr_f32(radius)) {
@@ -1139,8 +1139,8 @@ b32 point_in_circle(V2 point, V2 origin, f32 radius) {
   return result;
 }
 
-b32 point_in_rect(V2 point, Rect2 rect) {
-  b32 result = point.x > rect.min.x &&
+bool point_in_rect(V2 point, Rect2 rect) {
+  bool result = point.x > rect.min.x &&
     point.x <= rect.max.x &&
     point.y > rect.min.y &&
     point.y <= rect.max.y;
