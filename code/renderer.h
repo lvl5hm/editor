@@ -54,7 +54,10 @@ typedef struct {
   Render_Type type;
 } Render_Item;
 
+#define MAX_STATE_COUNT 16
 typedef struct {
+  Renderer_State stack[MAX_STATE_COUNT];
+  i32 stack_count;
   Renderer_State state;
   V2 window_size;
   

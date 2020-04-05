@@ -114,6 +114,13 @@ void render_rotate(Renderer *r, f32 angle) {
   r->state.matrix = m4_unrotate(r->state.matrix, angle);
 }
 
+void render_save(Renderer *r) {
+  r->stack[r->stack_count++] = r->state;
+}
+
+void render_restore(Renderer *r) {
+  r->state = r->stack[--r->stack_count];
+}
 
 f32 measure_string_width(Renderer *r, String s) {
   Font *font = r->state.font;
@@ -161,6 +168,32 @@ void draw_rect_outline(Renderer *r, Rect2 rect, f32 thick, u32 color) {
                               v2(size.x, thick)), color);
   draw_rect(r, rect2_min_size(v2(rect.max.x-thick, rect.min.y),
                               v2(thick, size.y)), color);
+}
+
+void draw_line(Renderer *r, V2 start, V2 end, f32 thick, u32 color) {
+  V2 line = v2_sub(end, start);
+  f32 length = v2_length(line);
+  f32 angle = atan2_f32(line.y, line.x);
+  
+  render_save(r);
+  render_translate(r, start);
+  render_rotate(r, angle);
+  
+  
+  Rect2 rect = rect2_min_size(v2(0, 0 - thick*0.5f), 
+                              v2(length, thick));
+  draw_rect(r, rect, color);
+  
+  render_restore(r);
+}
+
+void draw_arrow_outline(Renderer *r, V2 p, V2 size, f32 thick, u32 color) {
+  V2 bottom_left = v2(p.x - size.x*0.5f, p.y - size.y*0.5f);
+  V2 top_left = v2_add(bottom_left, v2(0, size.y));
+  V2 middle_right = v2(p.x + size.x*0.5f, p.y);
+  
+  draw_line(r, bottom_left, middle_right, thick, color);
+  draw_line(r, top_left, middle_right, thick, color);
 }
 
 void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *theme, V2 *scroll) {
