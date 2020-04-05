@@ -1,4 +1,4 @@
 [
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1264083340451231, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1264083340679363, "ph": "E", "pid": 1, "tid": 1}
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 1279182566962969, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 1279182567184655, "ph": "E", "pid": 1, "tid": 1}
 ]
