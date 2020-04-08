@@ -95,6 +95,13 @@ V2 get_reported_dims(ui_Item *item) {
     result = v2_zero();
   }
   
+  if (flag_is_set(item->style.flags, ui_WIDTH_PERCENT)) {
+    result.x = 0;
+  }
+  if (flag_is_set(item->style.flags, ui_HEIGHT_PERCENT)) {
+    result.y = 0;
+  }
+  
   return result;
 }
 
@@ -106,64 +113,44 @@ void ui_flex_begin(ui_Layout *layout, Style style) {
   ui_flex_begin_ex(layout, style, Item_Type_FLEX);
 }
 
+V2 ui_flex_calc_auto_dim(ui_Item *item, i32 main_axis) {
+  i32 other_axis = !main_axis;
+  
+  V2 result = v2_zero();
+  for (u32 child_index = 0;
+       child_index < sb_count(item->children);
+       child_index++) 
+  {
+    ui_Item *child = item->children + child_index;
+    V2 child_dims = get_reported_dims(child);
+    
+    result.e[main_axis] += child_dims.e[main_axis];
+    
+    if (child_dims.e[other_axis] > result.e[other_axis]) {
+      result.e[other_axis] = child_dims.e[other_axis];
+    }
+  }
+  
+  return result;
+}
+
 void ui_flex_end(ui_Layout *layout) {
   ui_Item *item = layout->current_container;
   if (layout->current_container->parent) {
     layout->current_container = layout->current_container->parent;
   }
   
-  f32 total_height = 0;
-  f32 total_width = 0;
-  
+  V2 size;
   bool is_horizontal = flag_is_set(item->style.flags, ui_HORIZONTAL);
+  i32 main_axis = is_horizontal ? AXIS_X : AXIS_Y;
   
-  if (is_horizontal) {
-    for (u32 child_index = 0;
-         child_index < sb_count(item->children);
-         child_index++) 
-    {
-      ui_Item *child = item->children + child_index;
-      V2 child_dims = get_reported_dims(child);
-      if (flag_is_set(child->style.flags, ui_WIDTH_PERCENT)) {
-        child_dims.x = 0;
-      }
-      if (flag_is_set(child->style.flags, ui_HEIGHT_PERCENT)) {
-        child_dims.y = 0;
-      }
-      
-      total_width += child_dims.x;
-      
-      if (child_dims.y > total_height) {
-        total_height = child_dims.y;
-      }
-    }
-  } else {
-    for (u32 child_index = 0;
-         child_index < sb_count(item->children);
-         child_index++) 
-    {
-      ui_Item *child = item->children + child_index;
-      V2 child_dims = get_reported_dims(child);
-      if (flag_is_set(child->style.flags, ui_WIDTH_PERCENT)) {
-        child_dims.x = 0;
-      }
-      if (flag_is_set(child->style.flags, ui_HEIGHT_PERCENT)) {
-        child_dims.y = 0;
-      }
-      
-      total_height += child_dims.y;
-      
-      if (child_dims.x > total_width) {
-        total_width = child_dims.x;
-      }
-    }
-  }
+  size = ui_flex_calc_auto_dim(item, main_axis);
   
-  if (item->style.height == ui_SIZE_AUTO) {
-    item->style.height = total_height;
-  }
   if (item->style.width == ui_SIZE_AUTO) {
-    item->style.width = total_width;
+    item->style.width = size.x;
+  }
+  if (item->style.height == ui_SIZE_AUTO) {
+    item->style.height = size.y;
   }
 }
 
@@ -264,15 +251,64 @@ ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
   return result;
 }
 
-void traverse_layout(ui_Layout *layout, ui_Item *item) {
-  if (flag_is_set(item->style.flags, ui_HIDDEN)) {
-    return;
+void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
+  i32 other_axis = !main_axis;
+  
+  f32 fixed_size = 0;
+  i32 stretch_count = 0;
+  
+  for (u32 child_index = 0;
+       child_index < sb_count(item->children);
+       child_index++) 
+  {
+    ui_Item *child = item->children + child_index;
+    
+    if (flag_is_set(child->style.flags, ui_HEIGHT_PERCENT)) {
+      child->style.height *= item->style.height/100;
+    }
+    if (flag_is_set(child->style.flags, ui_WIDTH_PERCENT)) {
+      child->style.width *= item->style.width/100;
+    }
+    
+    if (child->style.dims[main_axis] == ui_SIZE_STRETCH) {
+      stretch_count++;
+    } else {
+      fixed_size += child->style.dims[main_axis];
+    }
+    
+    if (child->style.dims[other_axis] == ui_SIZE_STRETCH ||
+        flag_is_set(item->style.flags, ui_ALIGN_STRETCH))
+    {
+      child->style.dims[other_axis] = item->style.dims[other_axis];
+    }
   }
   
-  f32 prev_z = layout->renderer->state.z;
-  if (item->style.layer)
-    layout->renderer->state.z = item->style.layer;
+  f32 size_per_stretch = (item->style.dims[main_axis] - fixed_size)/stretch_count;
   
+  V2 p = item->p;
+  
+  for (u32 child_index = 0;
+       child_index < sb_count(item->children);
+       child_index++) 
+  {
+    ui_Item *child = item->children + child_index;
+    child->p = p;
+    if (child->style.dims[main_axis] == ui_SIZE_STRETCH) {
+      child->style.dims[main_axis] = size_per_stretch;
+    }
+    
+    f32 dim = child->style.dims[main_axis];
+    
+    if (main_axis == AXIS_X) {
+      p.e[main_axis] += dim;
+    } else {
+      // NOTE(lvl5): y axis is multiplied by -1
+      p.e[main_axis] -= dim;
+    }
+  }
+}
+
+void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
   Rect2 rect = ui_get_rect(layout, item);
   draw_rect(layout->renderer, rect, item->style.bg_color);
   
@@ -280,9 +316,8 @@ void traverse_layout(ui_Layout *layout, ui_Item *item) {
     case Item_Type_BUTTON: {
       ui_State *state = layout_get_state(layout, item->state_id);
       
-      
       if (point_in_rect(layout->input->mouse.p, rect)) {
-        layout->hot = item->state_id;
+        *next_hot = item->state_id;
         draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
       }
       
@@ -297,17 +332,56 @@ void traverse_layout(ui_Layout *layout, ui_Item *item) {
       
       os_Button left = layout->input->mouse.left;
       if (point_in_rect(layout->input->mouse.p, rect)) {
-        layout->hot = item->state_id;
+        *next_hot = item->state_id;
         draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
+      } else if (state->is_active) {
+        ui_Item *hot_menu = null;
+        ui_Item *menu_bar = item->parent->parent;
+        for (u32 i = 0; i < sb_count(menu_bar->children); i++) {
+          ui_Item *menu_wrapper = menu_bar->children + i;
+          ui_Item *menu_toggle = menu_wrapper->children + 0;
+          if (ui_ids_equal(menu_toggle->state_id, layout->hot)) {
+            hot_menu = menu_toggle;
+            break;
+          }
+        }
+        
+        if (hot_menu) {
+          layout->active = layout->hot;
+          ui_State *active_state = layout_get_state(layout, layout->active);
+          active_state->is_active = true;
+          state->is_active = false;
+        }
       }
       
       if (ui_is_clicked(layout, item->state_id)) {
         state->is_active = !state->is_active;
+      } else {
+        if (layout->input->mouse.left.went_up) {
+          bool mouse_over_menu = false;
+          
+          ui_Item **descendents = ui_scratch_get_all_descendents(item->parent);
+          for (u32 i = 0; i < sb_count(descendents); i++) {
+            ui_Item *child = descendents[i];
+            if (point_in_rect(layout->input->mouse.p,
+                              ui_get_rect(layout, child))) 
+            {
+              mouse_over_menu = true;
+              break;
+            }
+          }
+          
+          if (!mouse_over_menu) {
+            state->is_active = false;
+          }
+        }
       }
       
       V2 rect_size = rect2_get_size(rect);
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
       
+      
+      // TODO(lvl5): make the arrow part of the layout?
       // draw the arrow
       draw_string(layout->renderer, state->label, p, 0xFFFFFFFF);
       {
@@ -330,130 +404,56 @@ void traverse_layout(ui_Layout *layout, ui_Item *item) {
       }
     } break;
   }
+}
+
+void traverse_layout(ui_Layout *layout, ui_Item *root) {
+  ui_Id next_hot = INVALID_UI_ID;
   
-  bool is_horizontal = flag_is_set(item->style.flags, ui_HORIZONTAL);
+  ui_Item *stack[128];
+  ui_Item *post_stack[128];
+  i32 stack_count = 0;
+  stack[stack_count++] = root;
   
-  if (item->children && sb_count(item->children)) {
-    if (!is_horizontal) {
-      f32 fixed_height = 0;
-      i32 stretch_count = 0;
-      for (u32 child_index = 0;
-           child_index < sb_count(item->children);
-           child_index++) 
-      {
-        ui_Item *child = item->children + child_index;
-        
-        if (flag_is_set(child->style.flags, ui_HEIGHT_PERCENT)) {
-          child->style.height *= item->style.height/100;
-        }
-        if (flag_is_set(child->style.flags, ui_WIDTH_PERCENT)) {
-          child->style.width *= item->style.width/100;
-        }
-        
-        if (child->style.height == ui_SIZE_STRETCH) {
-          stretch_count++;
-        } else {
-          fixed_height += child->style.height;
-        }
-        
-        if (child->style.width == ui_SIZE_STRETCH ||
-            flag_is_set(item->style.flags, ui_ALIGN_STRETCH))
-        {
-          child->style.width = item->style.width;
-        }
+  while (stack_count) {
+    ui_Item *item = stack[--stack_count];
+    
+    if (!item->rendered) {
+      if (flag_is_set(item->style.flags, ui_HIDDEN)) {
+        continue;
       }
       
-      f32 height_per_stretch = (item->style.height - fixed_height)/stretch_count;
+      if (item->style.layer) {
+        render_save(layout->renderer);
+        layout->renderer->state.z = item->style.layer;
+      }
       
-      V2 p = item->p;
+      ui_draw_item(layout, item, &next_hot);
       
-      for (u32 child_index = 0;
-           child_index < sb_count(item->children);
-           child_index++) 
-      {
-        ui_Item *child = item->children + child_index;
-        child->p = p;
-        if (child->style.height == ui_SIZE_STRETCH) {
-          child->style.height = height_per_stretch;
-        }
-        p.y -= child->style.height;
+      if (item->children && sb_count(item->children) > 0) {
+        // return to the item after visiting all descendents
+        item->rendered = true;
+        stack[stack_count++] = item;
         
-        traverse_layout(layout, child);
+        bool is_horizontal = flag_is_set(item->style.flags, ui_HORIZONTAL);
+        i32 main_axis = is_horizontal ? AXIS_X : AXIS_Y;
+        
+        ui_flex_set_stretchy_children(item, main_axis);
+        
+        u32 i = sb_count(item->children);
+        while (i > 0) {
+          i--;
+          ui_Item *child = item->children + i;
+          stack[stack_count++] = child;
+        }
       }
     } else {
-      f32 fixed_width = 0;
-      i32 stretch_count = 0;
-      for (u32 child_index = 0;
-           child_index < sb_count(item->children);
-           child_index++) 
-      {
-        ui_Item *child = item->children + child_index;
-        
-        if (flag_is_set(child->style.flags, ui_HEIGHT_PERCENT)) {
-          child->style.height *= item->style.height/100;
-        }
-        if (flag_is_set(child->style.flags, ui_WIDTH_PERCENT)) {
-          child->style.width *= item->style.width/100;
-        }
-        
-        
-        if (child->style.width == ui_SIZE_STRETCH) {
-          stretch_count++;
-        } else {
-          fixed_width += child->style.width;
-        }
-        
-        if (child->style.height == ui_SIZE_STRETCH) {
-          child->style.height = item->style.height;
-        }
-      }
-      
-      f32 width_per_stretch = (item->style.width - fixed_width)/stretch_count;
-      
-      V2 p = item->p;
-      for (u32 child_index = 0;
-           child_index < sb_count(item->children);
-           child_index++) 
-      {
-        ui_Item *child = item->children + child_index;
-        child->p = p;
-        if (child->style.width == ui_SIZE_STRETCH) {
-          child->style.width = width_per_stretch;
-        }
-        p.x += child->style.width;
-        
-        traverse_layout(layout, child);
+      if (item->style.layer) {
+        render_restore(layout->renderer);
       }
     }
   }
   
-  // after all children rects have been calculated
-  switch (item->type) {
-    case Item_Type_DROPDOWN_MENU: {
-      assert(sb_count(item->children) == 2);
-      ui_Item *button = item->children + 0;
-      ui_State *state = layout_get_state(layout, button->state_id);
-      
-      bool mouse_inside = false;
-      
-      ui_Item **descendents = ui_scratch_get_all_descendents(item);
-      for (u32 i = 0; i < sb_count(descendents); i++) {
-        ui_Item *child = descendents[i];
-        
-        Rect2 child_rect = ui_get_rect(layout, child);
-        if (point_in_rect(layout->input->mouse.p, child_rect)) {
-          mouse_inside = true;
-          break;
-        }
-      }
-      
-      if (!mouse_inside) {
-        state->is_active = false;
-      }
-    } break;
-  }
-  
-  layout->renderer->state.z = prev_z;
+  layout->hot = next_hot;
 }
 
 void ui_menu_bar_begin(ui_Layout *layout) {
@@ -471,7 +471,6 @@ void ui_menu_bar_end(ui_Layout *layout) {
 void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style style) {
   ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
   
-  bool result = false;
   ui_Item *item = layout_get_item(layout, Item_Type_MENU_TOGGLE_BUTTON, 
                                   default_button_style());
   item->state_id = id;
@@ -479,7 +478,6 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
   ui_State *state = layout_get_state(layout, id);
   state->label = label;
   
-  result = state->is_active;
   
   V2 size = ui_compute_text_size(layout, label, item->style);
   item->style.width = size.x + 16;
@@ -491,7 +489,7 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
     .layer = 1,
   };
   
-  if (!result) {
+  if (!state->is_active) {
     dropdown_box.flags |= ui_HIDDEN;
   }
   

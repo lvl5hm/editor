@@ -12,8 +12,13 @@
 typedef struct {
   u64 flags;
   
-  f32 width;
-  f32 height;
+  union {
+    struct {
+      f32 width;
+      f32 height;
+    };
+    f32 dims[2];
+  };
   f32 padding_left;
   f32 padding_right;
   f32 padding_top;
@@ -54,6 +59,8 @@ typedef struct ui_Item {
   Style style;
   ui_Item *children;
   ui_Item *parent;
+  
+  bool rendered;
 } ui_Item;
 
 

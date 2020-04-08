@@ -170,10 +170,15 @@ i16 round_f32_i16(f32 a) {
 
 
 // v2
+#define AXIS_X 0
+#define AXIS_Y 1
 
-typedef struct {
-  f32 x;
-  f32 y;
+typedef union {
+  struct {
+    f32 x;
+    f32 y;
+  };
+  f32 e[2];
 } V2;
 
 V2 v2(f32 x, f32 y) {

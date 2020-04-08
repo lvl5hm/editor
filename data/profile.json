@@ -1,4 +1,24 @@
 [
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1279182566962969, "ph": "B", "pid": 1, "tid": 1},
-  {"name": "renderer_end_render", "cat": "PERF", "ts": 1279182567184655, "ph": "E", "pid": 1, "tid": 1}
+  {"name": "make_empty_buffer", "cat": "PERF", "ts": 1695432179690286, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "buffer_insert_string", "cat": "PERF", "ts": 1695432199594724, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "buffer_changed", "cat": "PERF", "ts": 1695432199614596, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "buffer_parse", "cat": "PERF", "ts": 1695432199615020, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "add_scope", "cat": "PERF", "ts": 1695432199625702, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "add_scope", "cat": "PERF", "ts": 1695432199627214, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "buffer_tokenize", "cat": "PERF", "ts": 1695432199627928, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "set_color", "cat": "PERF", "ts": 1695432199629216, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "set_color", "cat": "PERF", "ts": 1695432199629246, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "buffer_tokenize", "cat": "PERF", "ts": 1695432199629944, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "parse_program", "cat": "PERF", "ts": 1695432199630146, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "parse_program", "cat": "PERF", "ts": 1695432199630264, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "buffer_parse", "cat": "PERF", "ts": 1695432199630316, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "buffer_get_dependent_buffers", "cat": "PERF", "ts": 1695432199630348, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "buffer_get_dependent_buffers", "cat": "PERF", "ts": 1695432199631966, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "buffer_changed", "cat": "PERF", "ts": 1695432199632038, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "buffer_insert_string", "cat": "PERF", "ts": 1695432199632068, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "set_cursor", "cat": "PERF", "ts": 1695432199632108, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "set_cursor", "cat": "PERF", "ts": 1695432199632440, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "make_empty_buffer", "cat": "PERF", "ts": 1695432199632462, "ph": "E", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 1695432222832574, "ph": "B", "pid": 1, "tid": 1},
+  {"name": "renderer_end_render", "cat": "PERF", "ts": 1695432224103414, "ph": "E", "pid": 1, "tid": 1}
 ]
