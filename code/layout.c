@@ -180,12 +180,11 @@ V2 ui_compute_text_size(ui_Layout *layout, String str, Style style) {
 
 bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
   ui_Item *item = layout_get_item(layout, Item_Type_BUTTON, style);
-  item->state_id = id;
+  item->id = id;
+  item->label = str;
   
   ui_State *state = layout_get_state(layout, id);
-  state->label = str;
-  
-  bool result = state->is_active;
+  bool result = state->clicked;
   
   V2 size = ui_compute_text_size(layout, str, item->style);
   item->style.width = size.x;
@@ -314,76 +313,80 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
   
   switch (item->type) {
     case Item_Type_BUTTON: {
-      ui_State *state = layout_get_state(layout, item->state_id);
-      
+      ui_State *state = layout_get_state(layout, item->id);
       if (point_in_rect(layout->input->mouse.p, rect)) {
-        *next_hot = item->state_id;
+        *next_hot = item->id;
         draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
       }
       
-      state->is_active = ui_is_clicked(layout, item->state_id);
+      state->clicked = ui_is_clicked(layout, item->id);
       
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
-      draw_string(layout->renderer, state->label, p, 0xFFFFFFFF);
+      draw_string(layout->renderer, item->label, p, 0xFFFFFFFF);
     } break;
     
     case Item_Type_MENU_TOGGLE_BUTTON: {
-      ui_State *state = layout_get_state(layout, item->state_id);
+      ui_State *state = layout_get_state(layout, item->id);
       
       os_Button left = layout->input->mouse.left;
-      if (point_in_rect(layout->input->mouse.p, rect)) {
-        *next_hot = item->state_id;
+      Rect2 menu_rect = ui_get_rect(layout, item);
+      
+      // NOTE(lvl5): open the menu if clicked
+      if (point_in_rect(layout->input->mouse.p, menu_rect)) {
         draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
-      } else if (state->is_active) {
-        ui_Item *hot_menu = null;
-        ui_Item *menu_bar = item->parent->parent;
-        for (u32 i = 0; i < sb_count(menu_bar->children); i++) {
-          ui_Item *menu_wrapper = menu_bar->children + i;
-          ui_Item *menu_toggle = menu_wrapper->children + 0;
-          if (ui_ids_equal(menu_toggle->state_id, layout->hot)) {
-            hot_menu = menu_toggle;
+        *next_hot = item->id;
+        if (ui_is_clicked(layout, item->id)) {
+          state->open = !state->open;
+        }
+      }
+      
+      // NOTE(lvl5): if menu is in a menu_bar, close the menu
+      // that is not being hovered over
+      ui_Item *menu_bar = item->parent->parent;
+      if (menu_bar->type != Item_Type_MENU_BAR) {
+        menu_bar = null;
+      }
+      
+      if (!state->open && menu_bar && 
+          ui_ids_equal(layout->hot, item->id)) 
+      {
+        for (u32 menu_index = 0; 
+             menu_index < sb_count(menu_bar->children);
+             menu_index++) 
+        {
+          ui_Item *menu_wrapper = menu_bar->children + menu_index;
+          ui_Item *menu = menu_wrapper->children + 0;
+          Rect2 menu_rect = ui_get_rect(layout, menu);
+          
+          ui_State *other_state = layout_get_state(layout, menu->id);
+          if (other_state->open) {
+            other_state->open = false;
+            state->open = true;
+          }
+        }
+      }
+      
+      // NOTE(lvl5): close the menu if a button is clicked
+      ui_Item *dropdown = item->parent->children + 1;
+      ui_Item **descendents = ui_scratch_get_all_descendents(dropdown);
+      for (u32 i = 0; i < sb_count(descendents); i++) {
+        ui_Item *child = descendents[i];
+        if (child->type == Item_Type_BUTTON) {
+          ui_State *button_state = layout_get_state(layout, child->id);
+          if (button_state->clicked) {
+            state->open = false;
             break;
           }
         }
-        
-        if (hot_menu) {
-          layout->active = layout->hot;
-          ui_State *active_state = layout_get_state(layout, layout->active);
-          active_state->is_active = true;
-          state->is_active = false;
-        }
       }
       
-      if (ui_is_clicked(layout, item->state_id)) {
-        state->is_active = !state->is_active;
-      } else {
-        if (layout->input->mouse.left.went_up) {
-          bool mouse_over_menu = false;
-          
-          ui_Item **descendents = ui_scratch_get_all_descendents(item->parent);
-          for (u32 i = 0; i < sb_count(descendents); i++) {
-            ui_Item *child = descendents[i];
-            if (point_in_rect(layout->input->mouse.p,
-                              ui_get_rect(layout, child))) 
-            {
-              mouse_over_menu = true;
-              break;
-            }
-          }
-          
-          if (!mouse_over_menu) {
-            state->is_active = false;
-          }
-        }
-      }
       
       V2 rect_size = rect2_get_size(rect);
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
       
-      
       // TODO(lvl5): make the arrow part of the layout?
       // draw the arrow
-      draw_string(layout->renderer, state->label, p, 0xFFFFFFFF);
+      draw_string(layout->renderer, item->label, p, 0xFFFFFFFF);
       {
         V2 arrow_size = v2(6, 9);
         V2 arrow_p = v2(rect.max.x - arrow_size.x*0.5f - item->style.padding_right,
@@ -447,6 +450,32 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
         }
       }
     } else {
+      switch (item->type) {
+        case Item_Type_DROPDOWN_MENU: {
+          // NOTE(lvl5): close the menu if clicked outside of it
+          ui_Item *menu_wrapper = item;
+          ui_Item *menu_button = menu_wrapper->children + 0;
+          ui_State *state = layout_get_state(layout, menu_button->id);
+          
+          if (state->open && layout->input->mouse.left.went_up) {
+            bool mouse_over_menu = false;
+            
+            ui_Item **descendents = ui_scratch_get_all_descendents(menu_wrapper);
+            for (u32 i = 0; i < sb_count(descendents); i++) {
+              ui_Item *child = descendents[i];
+              Rect2 child_rect = ui_get_rect(layout, child);
+              if (point_in_rect(layout->input->mouse.p, child_rect)) {
+                mouse_over_menu = true;
+                break;
+              }
+            }
+            
+            if (!mouse_over_menu) {
+              state->open = false;
+            }
+          }
+        } break;
+      }
       if (item->style.layer) {
         render_restore(layout->renderer);
       }
@@ -457,11 +486,11 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
 }
 
 void ui_menu_bar_begin(ui_Layout *layout) {
-  ui_flex_begin(layout, (Style){
-                .flags = ui_HORIZONTAL,
-                .bg_color = 0xFF0000FF,
-                .width = ui_SIZE_STRETCH,
-                });
+  ui_flex_begin_ex(layout, (Style){
+                   .flags = ui_HORIZONTAL,
+                   .bg_color = 0xFF0000FF,
+                   .width = ui_SIZE_STRETCH,
+                   }, Item_Type_MENU_BAR);
 }
 
 void ui_menu_bar_end(ui_Layout *layout) {
@@ -473,10 +502,9 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
   
   ui_Item *item = layout_get_item(layout, Item_Type_MENU_TOGGLE_BUTTON, 
                                   default_button_style());
-  item->state_id = id;
-  
+  item->id = id;
+  item->label = label;
   ui_State *state = layout_get_state(layout, id);
-  state->label = label;
   
   
   V2 size = ui_compute_text_size(layout, label, item->style);
@@ -489,7 +517,7 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
     .layer = 1,
   };
   
-  if (!state->is_active) {
+  if (!state->open) {
     dropdown_box.flags |= ui_HIDDEN;
   }
   
@@ -497,25 +525,6 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
 }
 
 void ui_dropdown_menu_end(ui_Layout *layout) {
-  ui_Item *dropdown = layout->current_container;
-  ui_Item *menu = dropdown->parent;
-  assert(sb_count(menu->children) == 2);
-  ui_Item *menu_toggle = menu->children + 0;
-  ui_State *state = layout_get_state(layout, menu_toggle->state_id);
-  
-  // check if any child was clicked
-  ui_Item **descendents = ui_scratch_get_all_descendents(dropdown);
-  for (u32 i = 0; i < sb_count(descendents); i++) {
-    ui_Item *child = descendents[i];
-    if (child->type == Item_Type_BUTTON) {
-      ui_State *child_state = layout_get_state(layout, child->state_id);
-      if (child_state->is_active) {
-        state->is_active = false;
-        break;
-      }
-    }
-  }
-  
   ui_flex_end(layout);
   ui_flex_end(layout);
 }

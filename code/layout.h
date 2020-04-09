@@ -39,6 +39,7 @@ typedef enum {
   Item_Type_PANEL,
   Item_Type_DROPDOWN_MENU,
   Item_Type_MENU_TOGGLE_BUTTON,
+  Item_Type_MENU_BAR,
 } Item_Type;
 
 typedef struct {
@@ -54,21 +55,24 @@ typedef struct ui_Item {
   V2 p;
   
   Item_Type type;
-  ui_Id state_id;
+  ui_Id id;
   
   Style style;
   ui_Item *children;
   ui_Item *parent;
   
   bool rendered;
+  
+  // stuff that needs to be remembered until the end of a frame to draw
+  String label;
 } ui_Item;
 
 
 #define LAYOUT_BUTTON_MAX 512
 
 typedef struct {
-  bool is_active;
-  String label;
+  bool open;
+  bool clicked;
 } ui_State;
 
 typedef struct {
