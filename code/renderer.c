@@ -115,10 +115,12 @@ void render_rotate(Renderer *r, f32 angle) {
 }
 
 void render_save(Renderer *r) {
+  assert(r->stack_count < MAX_STATE_COUNT);
   r->stack[r->stack_count++] = r->state;
 }
 
 void render_restore(Renderer *r) {
+  assert(r->stack_count > 0);
   r->state = r->stack[--r->stack_count];
 }
 

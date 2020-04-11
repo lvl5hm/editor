@@ -26,7 +26,7 @@ typedef enum {
   Command_OPEN_FILE_DIALOG,
   Command_LISTER_MOVE_UP,
   Command_LISTER_MOVE_DOWN,
-  Command_LISTER_SELECT,
+  Command_FILE_OPEN,
   Command_SAVE_BUFFER,
 } Command;
 
@@ -40,8 +40,6 @@ typedef struct Color_Theme {
 typedef enum {
   Panel_Type_NONE,
   Panel_Type_BUFFER,
-  Panel_Type_FILE_DIALOG_OPEN,
-  Panel_Type_FILE_DIALOG_NEW,
   Panel_Type_SETTINGS,
 } Panel_Type;
 
@@ -62,12 +60,6 @@ typedef struct {
   Color_Theme theme;
 } Settings;
 
-typedef struct {
-  String *items;
-  i32 index;
-} Lister;
-
-
 typedef struct Buffer_View {
   Buffer *buffer;
   i32 visible_cursor;
@@ -76,14 +68,8 @@ typedef struct Buffer_View {
 } Buffer_View;
 
 typedef struct {
-  String path;
-  Lister files;
-} File_Dialog;
-
-typedef struct {
   union {
     Buffer_View buffer_view;
-    File_Dialog file_dialog;
   };
   
   Panel_Type type;
@@ -93,10 +79,12 @@ typedef struct {
 } Panel;
 
 
-
-
-
 typedef struct Editor {
+  String path;
+  String *files;
+  bool file_dialog_open;
+  String selected_file_name;
+  
   Buffer *buffers;
   Panel *panels;
   i32 active_panel_index;

@@ -104,8 +104,8 @@ String *os_get_file_names(String path) {
   
   while (file != INVALID_HANDLE_VALUE) {
     if (!c_string_compare(findData.cFileName, ".") &&
-        !c_string_compare(findData.cFileName, "..")) {
-      
+        !c_string_compare(findData.cFileName, "..")) 
+    {
       char *src = findData.cFileName;
       i32 name_length = c_string_length(src);
       char *dst = (char *)alloc(name_length);

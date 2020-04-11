@@ -227,6 +227,11 @@ void buffer_changed(Buffer *buffer) {
 void buffer_insert_string(Buffer *b, String str) {
   begin_profiler_function();
   
+  Context *cur = get_context();
+  Context system_ctx = *cur;
+  system_ctx.allocator = system_allocator;
+  push_context(system_ctx);
+  
   bool not_scratch = get_context()->allocator == system_allocator;
   assert(not_scratch);
   if (b->count + (i32)str.count > b->capacity) {
@@ -271,12 +276,21 @@ void buffer_insert_string(Buffer *b, String str) {
   
   buffer_changed(b);
   
+  pop_context(system_ctx);
+  
   end_profiler_function();
 }
 
 
 Buffer *make_empty_buffer(Editor *editor, String path) {
   begin_profiler_function();
+  
+  
+  Context *cur = get_context();
+  Context system_ctx = *cur;
+  system_ctx.allocator = system_allocator;
+  push_context(system_ctx);
+  
   
   Buffer b = {0};
   b.capacity = 0;
@@ -295,6 +309,8 @@ Buffer *make_empty_buffer(Editor *editor, String path) {
   buffer_insert_string(buffer, const_string("\0"));
   set_cursor(buffer, 0);
   
+  
+  pop_context(system_ctx);
   end_profiler_function();
   return buffer;
 }

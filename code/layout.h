@@ -6,27 +6,56 @@
 #define ui_ALIGN_STRETCH (1 << 1)
 #define ui_IGNORE_LAYOUT (1 << 2)
 #define ui_HIDDEN (1 << 3)
-#define ui_WIDTH_PERCENT (1 << 4)
-#define ui_HEIGHT_PERCENT (1 << 5)
+#define ui_ALIGN_CENTER (1 << 4)
+
+typedef enum {
+  Unit_PIXELS,
+  Unit_PERCENT,
+  Unit_FRACTIONS,
+} Unit;
+
+typedef struct {
+  f32 value;
+  Unit unit;
+} Dim;
+
+Dim px(f32 v) {
+  return (Dim){v, Unit_PIXELS};
+}
+
+Dim percent(f32 v) {
+  return (Dim){v, Unit_PERCENT};
+}
+
+Dim fr(f32 v) {
+  return (Dim){v, Unit_FRACTIONS};
+}
 
 typedef struct {
   u64 flags;
   
   union {
     struct {
-      f32 width;
-      f32 height;
+      Dim width;
+      Dim height;
     };
-    f32 dims[2];
+    Dim dims[2];
   };
+  
   f32 padding_left;
   f32 padding_right;
   f32 padding_top;
   f32 padding_bottom;
-  f32 min_width;
-  f32 min_height;
+  Dim min_width;
+  Dim min_height;
   
+  f32 border_width;
+  u32 border_color;
+  u32 active_border_color;
+  
+  u32 text_color;
   u32 bg_color;
+  u32 active_bg_color;
   f32 layer;
 } Style;
 
@@ -37,6 +66,7 @@ typedef enum {
   Item_Type_FLEX,
   Item_Type_BUTTON,
   Item_Type_PANEL,
+  Item_Type_BUFFER,
   Item_Type_DROPDOWN_MENU,
   Item_Type_MENU_TOGGLE_BUTTON,
   Item_Type_MENU_BAR,
@@ -65,6 +95,8 @@ typedef struct ui_Item {
   
   // stuff that needs to be remembered until the end of a frame to draw
   String label;
+  Buffer_View *buffer_view;
+  V2 *scroll;
 } ui_Item;
 
 
@@ -87,6 +119,7 @@ typedef struct {
   
   Renderer *renderer;
   os_Input *input;
+  Editor *editor;
   
   ui_Id hot;
   ui_Id active;

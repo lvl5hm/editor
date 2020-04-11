@@ -1,10 +1,11 @@
 #include "layout.h"
 #include "renderer.c"
 
-ui_Layout make_layout(Renderer *r, os_Input *input) {
+ui_Layout make_layout(Renderer *r, os_Input *input, Editor *editor) {
   ui_Layout result = {
     .renderer = r,
     .input = input,
+    .editor = editor,
   };
   return result;
 }
@@ -88,17 +89,17 @@ ui_Item *layout_get_item(ui_Layout *layout, Item_Type type, Style style) {
 }
 
 V2 get_reported_dims(ui_Item *item) {
-  V2 result = v2(item->style.width, item->style.height);
+  V2 result = v2(item->style.width.value, item->style.height.value);
   if (flag_is_set(item->style.flags, ui_IGNORE_LAYOUT) ||
       flag_is_set(item->style.flags, ui_HIDDEN)) 
   {
     result = v2_zero();
   }
   
-  if (flag_is_set(item->style.flags, ui_WIDTH_PERCENT)) {
+  if (item->style.width.unit == Unit_PERCENT) {
     result.x = 0;
   }
-  if (flag_is_set(item->style.flags, ui_HEIGHT_PERCENT)) {
+  if (item->style.height.unit == Unit_PERCENT) {
     result.y = 0;
   }
   
@@ -146,33 +147,40 @@ void ui_flex_end(ui_Layout *layout) {
   
   size = ui_flex_calc_auto_dim(item, main_axis);
   
-  if (item->style.width == ui_SIZE_AUTO) {
-    item->style.width = size.x;
+  if (item->style.width.value == ui_SIZE_AUTO) {
+    item->style.width.value = size.x;
+    assert(item->style.width.unit == Unit_PIXELS);
   }
-  if (item->style.height == ui_SIZE_AUTO) {
-    item->style.height = size.y;
+  if (item->style.height.value == ui_SIZE_AUTO) {
+    item->style.height.value = size.y;
+    assert(item->style.height.unit == Unit_PIXELS);
   }
 }
 
 Style default_button_style() {
   Style result = {
-    .bg_color = 0xFF555555,
+    .text_color = 0xFFFFFFFF,
+    .bg_color = 0xFF888888,
+    .active_bg_color = 0xFF666666,
     .padding_left = 8,
     .padding_right = 8,
   };
   return result;
 }
 
+
 V2 ui_compute_text_size(ui_Layout *layout, String str, Style style) {
-  V2 result = v2(style.width, style.height);
+  V2 result = v2(style.width.value, style.height.value);
   
-  if (style.height == ui_SIZE_AUTO) {
+  if (style.height.value == ui_SIZE_AUTO) {
+    assert(style.height.unit == Unit_PIXELS);
     result.y = layout->renderer->state.font->line_height;
   }
   
-  if (style.width == ui_SIZE_AUTO) {
+  if (style.width.value == ui_SIZE_AUTO) {
+    assert(style.width.unit == Unit_PIXELS);
     result.x = measure_string_width(layout->renderer, str) +
-      style.padding_left + style.padding_right;
+      style.padding_right + style.padding_left;
   }
   
   return result;
@@ -187,22 +195,54 @@ bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
   bool result = state->clicked;
   
   V2 size = ui_compute_text_size(layout, str, item->style);
-  item->style.width = size.x;
-  item->style.height = size.y;
+  if (style.width.value == ui_SIZE_AUTO) {
+    item->style.width.value = size.x;
+  }
+  if (style.height.value == ui_SIZE_AUTO) {
+    item->style.height.value = size.y;
+  }
   
   return result;
 }
 
-void ui_panel(ui_Layout *layout, Style style) {
-  ui_Item *item = layout_get_item(layout, Item_Type_PANEL, style);
-  assert(style.width != ui_SIZE_AUTO);
-  assert(style.height != ui_SIZE_AUTO);
+void ui_buffer(ui_Layout *layout, Buffer_View *buffer_view, V2 *scroll, Style style) {
+  ui_Item *item = layout_get_item(layout, Item_Type_BUFFER, style);
+  item->buffer_view = buffer_view;
+  item->scroll = scroll;
+}
+
+void ui_panel(ui_Layout *layout, Panel *panel, Style style) {
+  ui_flex_begin(layout, style);
+  
+  assert(panel->type == Panel_Type_BUFFER);
+  
+  Style button_style = default_button_style();
+  button_style.bg_color = 0xFFAAAAAA;
+  button_style.width.value = ui_SIZE_STRETCH;
+  button_style.text_color = 0xFF222222;
+  
+  ui_button(layout, ui_id(), panel->buffer_view.buffer->path, button_style);
+  
+  Style buffer_style = (Style){
+    .width = ui_SIZE_STRETCH,
+    .height = ui_SIZE_STRETCH,
+    .bg_color = layout->editor->settings.theme.colors[Syntax_BACKGROUND],
+    .border_width = 2,
+    .active_border_color = 0xFFCCCCCC,
+    .border_color = 0xFF444444,
+  };
+  ui_buffer(layout, &panel->buffer_view, &panel->scroll, buffer_style);
+  
+  ui_flex_end(layout);
+  
+  assert(style.width.value != ui_SIZE_AUTO);
+  assert(style.height.value != ui_SIZE_AUTO);
 }
 
 Rect2 ui_get_rect(ui_Layout *layout, ui_Item *item) {
   V2 p = v2_add(item->p, layout->p);
-  p.y -= item->style.height;
-  Rect2 rect = rect2_min_size(p, v2(item->style.width, item->style.height));
+  p.y -= item->style.height.value;
+  Rect2 rect = rect2_min_size(p, v2(item->style.width.value, item->style.height.value));
   return rect;
 }
 
@@ -262,27 +302,41 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
   {
     ui_Item *child = item->children + child_index;
     
-    if (flag_is_set(child->style.flags, ui_HEIGHT_PERCENT)) {
-      child->style.height *= item->style.height/100;
+    if (child->style.height.unit == Unit_PERCENT) {
+      child->style.height.value *= item->style.height.value/100;
+      child->style.height.unit = Unit_PIXELS;
     }
-    if (flag_is_set(child->style.flags, ui_WIDTH_PERCENT)) {
-      child->style.width *= item->style.width/100;
+    if (child->style.width.unit == Unit_PERCENT) {
+      child->style.width.value *= item->style.width.value/100;
+      child->style.width.unit = Unit_PIXELS;
     }
     
-    if (child->style.dims[main_axis] == ui_SIZE_STRETCH) {
+    
+    // NOTE(lvl5): dealing with min_width
+    if (child->style.min_width.unit == Unit_PERCENT) {
+      child->style.min_width.value *= item->style.width.value/100;
+      child->style.min_width.unit = Unit_PIXELS;
+    }
+    if (child->style.width.value < child->style.min_width.value) {
+      child->style.width.value = child->style.min_width.value;
+    }
+    
+    V2 child_dims = get_reported_dims(child);
+    
+    if (child->style.dims[main_axis].value == ui_SIZE_STRETCH) {
       stretch_count++;
     } else {
-      fixed_size += child->style.dims[main_axis];
+      fixed_size += child_dims.e[main_axis];
     }
     
-    if (child->style.dims[other_axis] == ui_SIZE_STRETCH ||
+    if (child->style.dims[other_axis].value == ui_SIZE_STRETCH ||
         flag_is_set(item->style.flags, ui_ALIGN_STRETCH))
     {
-      child->style.dims[other_axis] = item->style.dims[other_axis];
+      child->style.dims[other_axis].value = item->style.dims[other_axis].value;
     }
   }
   
-  f32 size_per_stretch = (item->style.dims[main_axis] - fixed_size)/stretch_count;
+  f32 size_per_stretch = (item->style.dims[main_axis].value - fixed_size)/stretch_count;
   
   V2 p = item->p;
   
@@ -291,12 +345,21 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
        child_index++) 
   {
     ui_Item *child = item->children + child_index;
-    child->p = p;
-    if (child->style.dims[main_axis] == ui_SIZE_STRETCH) {
-      child->style.dims[main_axis] = size_per_stretch;
+    
+    if (child->style.dims[main_axis].value == ui_SIZE_STRETCH) {
+      child->style.dims[main_axis].value = size_per_stretch;
     }
     
-    f32 dim = child->style.dims[main_axis];
+    V2 child_dims = get_reported_dims(child);
+    f32 dim = child_dims.e[main_axis];
+    
+    child->p = p;
+    
+    if (flag_is_set(item->style.flags, ui_ALIGN_CENTER)) {
+      child->p.e[other_axis] += (item->style.dims[other_axis].value - 
+                                 child->style.dims[other_axis].value)*0.5f;
+    }
+    
     
     if (main_axis == AXIS_X) {
       p.e[main_axis] += dim;
@@ -307,36 +370,105 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
   }
 }
 
+ui_Item *ui_get_item_by_id(ui_Layout *layout, ui_Id id) {
+  ui_Item *root = layout->current_container;
+  while (root->parent) root = root->parent;
+  
+  ui_Item **descendents = ui_scratch_get_all_descendents(root);
+  
+  ui_Item *result = null;
+  for (u32 i = 0; i < sb_count(descendents); i++) {
+    if (ui_ids_equal(descendents[i]->id, id)) {
+      result = descendents[i];
+      break;
+    }
+  }
+  return result;
+}
+
+f32 ui_get_layer(ui_Item *item) {
+  f32 layer = item->style.layer;
+  while (item->parent) {
+    item = item->parent;
+    if (item->style.layer) {
+      layer = item->style.layer;
+    }
+  }
+  return layer;
+}
+
 void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
   Rect2 rect = ui_get_rect(layout, item);
-  draw_rect(layout->renderer, rect, item->style.bg_color);
   
   switch (item->type) {
+    case Item_Type_BUFFER: {
+      draw_rect(layout->renderer, rect, item->style.bg_color);
+      f32 border_width = item->style.border_width;
+      if (border_width) {
+        draw_rect_outline(layout->renderer, rect, border_width, item->style.border_color);
+      }
+      rect.min.x += border_width;
+      rect.min.y += border_width;
+      rect.max.x -= border_width;
+      rect.max.y -= border_width;
+      
+      draw_buffer_view(layout->renderer,
+                       rect,
+                       item->buffer_view,
+                       &layout->editor->settings.theme,
+                       item->scroll);
+    } break;
+    
     case Item_Type_BUTTON: {
       ui_State *state = layout_get_state(layout, item->id);
-      if (point_in_rect(layout->input->mouse.p, rect)) {
-        *next_hot = item->id;
-        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
-      }
       
       state->clicked = ui_is_clicked(layout, item->id);
       
+      u32 color = item->style.bg_color;
+      if (ui_ids_equal(layout->active, item->id)) {
+        color = item->style.active_bg_color;
+      }
+      draw_rect(layout->renderer, rect, color);
+      
+      if (ui_ids_equal(layout->hot, item->id)) {
+        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
+      }
+      
+      if (point_in_rect(layout->input->mouse.p, rect)) {
+        ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
+        if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
+          *next_hot = item->id;
+        }
+      }
+      
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
-      draw_string(layout->renderer, item->label, p, 0xFFFFFFFF);
+      draw_string(layout->renderer, item->label, p, item->style.text_color);
     } break;
     
     case Item_Type_MENU_TOGGLE_BUTTON: {
       ui_State *state = layout_get_state(layout, item->id);
       
+      u32 color = item->style.bg_color;
+      if (state->open || ui_ids_equal(layout->active, item->id)) {
+        color = item->style.active_bg_color;
+      }
+      draw_rect(layout->renderer, rect, color);
+      
       os_Button left = layout->input->mouse.left;
-      Rect2 menu_rect = ui_get_rect(layout, item);
+      
+      if (ui_ids_equal(layout->hot, item->id)) {
+        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
+      }
+      
+      if (ui_is_clicked(layout, item->id)) {
+        state->open = !state->open;
+      }
       
       // NOTE(lvl5): open the menu if clicked
-      if (point_in_rect(layout->input->mouse.p, menu_rect)) {
-        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
-        *next_hot = item->id;
-        if (ui_is_clicked(layout, item->id)) {
-          state->open = !state->open;
+      if (point_in_rect(layout->input->mouse.p, rect)) {
+        ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
+        if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
+          *next_hot = item->id;
         }
       }
       
@@ -398,6 +530,10 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
           angle = 0;
         }
         
+        if (state->open) {
+          angle += 0.5f;
+        }
+        
         render_save(layout->renderer);
         render_translate(layout->renderer, arrow_p);
         render_rotate(layout->renderer, angle);
@@ -405,6 +541,10 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
         
         render_restore(layout->renderer);
       }
+    } break;
+    
+    default: {
+      draw_rect(layout->renderer, rect, item->style.bg_color);
     } break;
   }
 }
@@ -485,12 +625,9 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   layout->hot = next_hot;
 }
 
-void ui_menu_bar_begin(ui_Layout *layout) {
-  ui_flex_begin_ex(layout, (Style){
-                   .flags = ui_HORIZONTAL,
-                   .bg_color = 0xFF0000FF,
-                   .width = ui_SIZE_STRETCH,
-                   }, Item_Type_MENU_BAR);
+void ui_menu_bar_begin(ui_Layout *layout, Style style) {
+  style.flags |= ui_HORIZONTAL;
+  ui_flex_begin_ex(layout, style, Item_Type_MENU_BAR);
 }
 
 void ui_menu_bar_end(ui_Layout *layout) {
@@ -499,22 +636,25 @@ void ui_menu_bar_end(ui_Layout *layout) {
 
 void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style style) {
   ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
+  Style toggle_style = default_button_style();
+  toggle_style.bg_color = 0xFF333333;
   
   ui_Item *item = layout_get_item(layout, Item_Type_MENU_TOGGLE_BUTTON, 
-                                  default_button_style());
+                                  toggle_style);
   item->id = id;
   item->label = label;
   ui_State *state = layout_get_state(layout, id);
   
   
   V2 size = ui_compute_text_size(layout, label, item->style);
-  item->style.width = size.x + 16;
-  item->style.height = size.y;
+  item->style.width.value = size.x + 16;
+  item->style.height.value = size.y;
   
   Style dropdown_box = (Style){
     .flags = ui_ALIGN_STRETCH|ui_IGNORE_LAYOUT,
     .bg_color = 0xFF888888,
     .layer = 1,
+    .min_width = percent(100),
   };
   
   if (!state->open) {

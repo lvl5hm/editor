@@ -16,6 +16,7 @@ typedef enum {
   T_DEFAULT,
   T_RETURN,
   T_BREAK,
+  T_SIZEOF,
   
   T_SIGNED,
   T_UNSIGNED,
@@ -142,6 +143,7 @@ String Token_Kind_To_String[] = {
   [T_FINAL] = arr_string("final"),
   [T_NEW] = arr_string("new"),
   [T_DELETE] = arr_string("delete"),
+  [T_SIZEOF] = arr_string("sizeof"),
   
   [T_CHAR] = arr_string("char"),
   [T_SHORT] = arr_string("short"),
