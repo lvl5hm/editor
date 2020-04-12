@@ -23,6 +23,7 @@ typedef struct {
   u32 color;
   M4 matrix;
   f32 z;
+  Rect2 clip;
 } Renderer_State;
 
 typedef enum {
@@ -37,12 +38,8 @@ typedef struct Color_Theme Color_Theme;
 
 typedef struct {
   union {
-    struct {
-      String string;
-    } string;
-    struct {
-      Rect2 rect;
-    } rect;
+    String string;
+    Rect2 rect;
     struct {
       Rect2 rect;
       Buffer_View *view;
@@ -54,13 +51,14 @@ typedef struct {
   Render_Type type;
 } Render_Item;
 
-#define MAX_STATE_COUNT 16
+#define MAX_STATE_COUNT 32
 typedef struct {
   Renderer_State stack[MAX_STATE_COUNT];
   i32 stack_count;
   Renderer_State state;
-  V2 window_size;
   
+  
+  V2 window_size;
   Render_Item *items;
   
   GLuint vertex_vbo;

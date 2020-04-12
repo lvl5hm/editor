@@ -70,6 +70,7 @@ typedef enum {
   Item_Type_DROPDOWN_MENU,
   Item_Type_MENU_TOGGLE_BUTTON,
   Item_Type_MENU_BAR,
+  Item_Type_LABEL,
 } Item_Type;
 
 typedef struct {
@@ -83,6 +84,8 @@ typedef struct {
 typedef struct ui_Item ui_Item;
 typedef struct ui_Item {
   V2 p;
+  V2 size;
+  V2 min_size;
   
   Item_Type type;
   ui_Id id;

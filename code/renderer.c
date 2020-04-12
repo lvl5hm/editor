@@ -90,16 +90,12 @@ void init_renderer(gl_Funcs gl, Renderer *r, GLuint shader, Font *font, V2 windo
   r->shader = shader;
 }
 
-void renderer_begin_render(Renderer *r, Rect2 rect) {
+void renderer_begin_render(Renderer *r) {
   V2 ws = r->window_size;
   r->state.matrix = m4_transpose(m4_orthographic(-ws.x*0.5f, ws.x*0.5f, 
                                                  -ws.y*0.5f, ws.y*0.5f,
                                                  1, -1));
   sb_count(r->items) = 0;
-  
-  V2i min = v2i((i32)(rect.min.x + ws.x*0.5f), (i32)(rect.min.y + ws.y*0.5f));
-  V2i size = v2_to_v2i(rect2_get_size(rect));
-  glScissor(min.x, min.y, size.x, size.y);
 }
 
 void render_scale(Renderer *r, V2 scale) {
@@ -112,6 +108,10 @@ void render_translate(Renderer *r, V2 p) {
 
 void render_rotate(Renderer *r, f32 angle) {
   r->state.matrix = m4_unrotate(r->state.matrix, angle);
+}
+
+void render_clip(Renderer *r, Rect2 rect) {
+  r->state.clip = rect;
 }
 
 void render_save(Renderer *r) {
@@ -135,7 +135,6 @@ f32 measure_string_width(Renderer *r, String s) {
   return result;
 }
 
-
 // strings drawn with this MUST have an extra char of padding AFTER count
 void draw_string(Renderer *r, String s, V2 p, u32 color) {
   render_translate(r, p);
@@ -145,7 +144,7 @@ void draw_string(Renderer *r, String s, V2 p, u32 color) {
     .state = r->state,
   };
   item.state.color = color;
-  item.string.string = s;
+  item.string = s;
   sb_push(r->items, item);
   
   render_translate(r, v2_negate(p));
@@ -198,7 +197,11 @@ void draw_arrow_outline(Renderer *r, V2 p, V2 size, f32 thick, u32 color) {
   draw_line(r, top_left, middle_right, thick, color);
 }
 
-void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *theme, V2 *scroll) {
+void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *theme, V2 *scroll) 
+{
+  render_save(r);
+  render_clip(r, rect);
+  
   Render_Item item = {
     .type = Render_Type_BUFFER,
     .state = r->state,
@@ -209,6 +212,7 @@ void draw_buffer_view(Renderer *r, Rect2 rect, Buffer_View *view, Color_Theme *t
   item.buffer.view = view;
   
   sb_push(r->items, item);
+  render_restore(r);
 }
 
 
@@ -232,12 +236,35 @@ void queue_rect(Quad_Instance *instances, Rect2 rect, Renderer_State state) {
   sb_push(instances, inst);
 }
 
+Quad_Instance *renderer_dump_quads(gl_Funcs gl, Renderer *r, 
+                                   Quad_Instance *instances, Rect2 clip) 
+{
+  if (instances && sb_count(instances)) {
+    gl.UseProgram(r->shader);
+    gl.BindBuffer(GL_ARRAY_BUFFER, r->vertex_vbo);
+    gl.BufferData(GL_ARRAY_BUFFER, sizeof(Quad_Instance)*sb_count(instances), instances, GL_DYNAMIC_DRAW);
+    gl.DrawArraysInstanced(GL_TRIANGLES, 0, 6, sb_count(instances));
+    
+    gl.Disable(GL_SCISSOR_TEST);
+  }
+  
+  V2 ws = r->window_size;
+  V2i min = v2i((i32)(clip.min.x + ws.x*0.5f), (i32)(clip.min.y + ws.y*0.5f));
+  V2i size = v2_to_v2i(rect2_get_size(clip));
+  
+  gl.Enable(GL_SCISSOR_TEST);
+  glScissor(min.x, min.y, size.x, size.y);
+  
+  Quad_Instance *result = sb_new(Quad_Instance, 10000);
+  return result;
+}
+
 void renderer_end_render(gl_Funcs gl, Renderer *r) {
   begin_profiler_function();
   
   push_scratch_context();
   
-  Quad_Instance *instances = sb_new(Quad_Instance, 10000);
+  Quad_Instance *instances = null;
   
   u32 item_count = sb_count(r->items);
   {
@@ -254,14 +281,22 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
     }
   }
   
+  Rect2 current_clip = rect2_min_size(v2_zero(), v2_zero());
+  
+  
   for (u32 item_index = 0; item_index < item_count; item_index++) {
     Render_Item *item = r->items + item_index;
     Font *font = item->state.font;
     
+    if (!rect2_are_equal(current_clip, item->state.clip)) {
+      current_clip = item->state.clip;
+      instances = renderer_dump_quads(gl, r, instances, current_clip);
+    }
+    
     switch (item->type) {
       case Render_Type_STRING: {
         M4 matrix = item->state.matrix;
-        String s = item->string.string;
+        String s = item->string;
         V2 offset = v2_zero();
         
         for (u32 char_index = 0; char_index < s.count; char_index++) {
@@ -300,9 +335,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
       } break;
       
       case Render_Type_RECT: {
-        queue_rect(instances,
-                   item->rect.rect,
-                   item->state);
+        queue_rect(instances, item->rect, item->state);
       } break;
       
       case Render_Type_BUFFER: {
@@ -448,15 +481,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
     }
   }
   
-  gl.UseProgram(r->shader);
-  
-  
-  //gl_set_uniform_m4(gl, r->shader, "u_projection", &u_projection, 1);
-  
-  gl.BindBuffer(GL_ARRAY_BUFFER, r->vertex_vbo);
-  gl.BufferData(GL_ARRAY_BUFFER, sizeof(Quad_Instance)*sb_count(instances), instances, GL_DYNAMIC_DRAW);
-  
-  gl.DrawArraysInstanced(GL_TRIANGLES, 0, 6, sb_count(instances));
+  renderer_dump_quads(gl, r, instances, current_clip);
   
   pop_context();
   

@@ -84,23 +84,29 @@ ui_Item *layout_get_item(ui_Layout *layout, Item_Type type, Style style) {
   result->parent = layout->current_container;
   result->type = type;
   result->children = sb_new(ui_Item, 8);
+  if (style.width.unit == Unit_PIXELS) {
+    result->size.x = style.width.value;
+  }
+  if (style.height.unit == Unit_PIXELS) {
+    result->size.y = style.height.value;
+  }
+  if (style.min_width.unit == Unit_PIXELS) {
+    result->min_size.x = style.min_width.value;
+  }
+  if (style.min_height.unit == Unit_PIXELS) {
+    result->min_size.y = style.min_height.value;
+  }
+  
   
   return result;
 }
 
 V2 get_reported_dims(ui_Item *item) {
-  V2 result = v2(item->style.width.value, item->style.height.value);
+  V2 result = item->size;
   if (flag_is_set(item->style.flags, ui_IGNORE_LAYOUT) ||
       flag_is_set(item->style.flags, ui_HIDDEN)) 
   {
     result = v2_zero();
-  }
-  
-  if (item->style.width.unit == Unit_PERCENT) {
-    result.x = 0;
-  }
-  if (item->style.height.unit == Unit_PERCENT) {
-    result.y = 0;
   }
   
   return result;
@@ -141,19 +147,16 @@ void ui_flex_end(ui_Layout *layout) {
     layout->current_container = layout->current_container->parent;
   }
   
-  V2 size;
   bool is_horizontal = flag_is_set(item->style.flags, ui_HORIZONTAL);
   i32 main_axis = is_horizontal ? AXIS_X : AXIS_Y;
   
-  size = ui_flex_calc_auto_dim(item, main_axis);
+  V2 size = ui_flex_calc_auto_dim(item, main_axis);
   
   if (item->style.width.value == ui_SIZE_AUTO) {
-    item->style.width.value = size.x;
-    assert(item->style.width.unit == Unit_PIXELS);
+    item->size.x = size.x;
   }
   if (item->style.height.value == ui_SIZE_AUTO) {
-    item->style.height.value = size.y;
-    assert(item->style.height.unit == Unit_PIXELS);
+    item->size.y = size.y;
   }
 }
 
@@ -186,6 +189,19 @@ V2 ui_compute_text_size(ui_Layout *layout, String str, Style style) {
   return result;
 }
 
+void ui_label(ui_Layout *layout, String label, Style style) {
+  ui_Item *item = layout_get_item(layout, Item_Type_LABEL, style);
+  item->label = label;
+  
+  V2 size = ui_compute_text_size(layout, label, item->style);
+  if (style.width.value == ui_SIZE_AUTO) {
+    item->size.x = size.x;
+  }
+  if (style.height.value == ui_SIZE_AUTO) {
+    item->size.y = size.y;
+  }
+}
+
 bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
   ui_Item *item = layout_get_item(layout, Item_Type_BUTTON, style);
   item->id = id;
@@ -196,10 +212,10 @@ bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
   
   V2 size = ui_compute_text_size(layout, str, item->style);
   if (style.width.value == ui_SIZE_AUTO) {
-    item->style.width.value = size.x;
+    item->size.x = size.x;
   }
   if (style.height.value == ui_SIZE_AUTO) {
-    item->style.height.value = size.y;
+    item->size.y = size.y;
   }
   
   return result;
@@ -221,7 +237,7 @@ void ui_panel(ui_Layout *layout, Panel *panel, Style style) {
   button_style.width.value = ui_SIZE_STRETCH;
   button_style.text_color = 0xFF222222;
   
-  ui_button(layout, ui_id(), panel->buffer_view.buffer->path, button_style);
+  ui_label(layout, panel->buffer_view.buffer->path, button_style);
   
   Style buffer_style = (Style){
     .width = ui_SIZE_STRETCH,
@@ -241,8 +257,8 @@ void ui_panel(ui_Layout *layout, Panel *panel, Style style) {
 
 Rect2 ui_get_rect(ui_Layout *layout, ui_Item *item) {
   V2 p = v2_add(item->p, layout->p);
-  p.y -= item->style.height.value;
-  Rect2 rect = rect2_min_size(p, v2(item->style.width.value, item->style.height.value));
+  p.y -= item->size.y;
+  Rect2 rect = rect2_min_size(p, item->size);
   return rect;
 }
 
@@ -301,24 +317,25 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
        child_index++) 
   {
     ui_Item *child = item->children + child_index;
+    if (flag_is_set(child->style.flags, ui_HIDDEN)) {
+      continue;
+    }
+    
     
     if (child->style.height.unit == Unit_PERCENT) {
-      child->style.height.value *= item->style.height.value/100;
-      child->style.height.unit = Unit_PIXELS;
+      child->size.y = child->style.height.value*item->size.y/100;
     }
     if (child->style.width.unit == Unit_PERCENT) {
-      child->style.width.value *= item->style.width.value/100;
-      child->style.width.unit = Unit_PIXELS;
+      child->size.x = child->style.width.value*item->size.x/100;
     }
     
     
     // NOTE(lvl5): dealing with min_width
     if (child->style.min_width.unit == Unit_PERCENT) {
-      child->style.min_width.value *= item->style.width.value/100;
-      child->style.min_width.unit = Unit_PIXELS;
+      child->min_size.x = child->style.min_width.value*item->size.x/100;
     }
-    if (child->style.width.value < child->style.min_width.value) {
-      child->style.width.value = child->style.min_width.value;
+    if (child->size.x < child->min_size.x) {
+      child->size.x = child->min_size.x;
     }
     
     V2 child_dims = get_reported_dims(child);
@@ -332,11 +349,11 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
     if (child->style.dims[other_axis].value == ui_SIZE_STRETCH ||
         flag_is_set(item->style.flags, ui_ALIGN_STRETCH))
     {
-      child->style.dims[other_axis].value = item->style.dims[other_axis].value;
+      child->size.e[other_axis] = item->size.e[other_axis];
     }
   }
   
-  f32 size_per_stretch = (item->style.dims[main_axis].value - fixed_size)/stretch_count;
+  f32 size_per_stretch = (item->size.e[main_axis] - fixed_size)/stretch_count;
   
   V2 p = item->p;
   
@@ -347,7 +364,7 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
     ui_Item *child = item->children + child_index;
     
     if (child->style.dims[main_axis].value == ui_SIZE_STRETCH) {
-      child->style.dims[main_axis].value = size_per_stretch;
+      child->size.e[main_axis] = size_per_stretch;
     }
     
     V2 child_dims = get_reported_dims(child);
@@ -356,10 +373,9 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
     child->p = p;
     
     if (flag_is_set(item->style.flags, ui_ALIGN_CENTER)) {
-      child->p.e[other_axis] += (item->style.dims[other_axis].value - 
-                                 child->style.dims[other_axis].value)*0.5f;
+      child->p.e[other_axis] += (item->size.e[other_axis] - 
+                                 child->size.e[other_axis])*0.5f;
     }
-    
     
     if (main_axis == AXIS_X) {
       p.e[main_axis] += dim;
@@ -401,6 +417,13 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
   Rect2 rect = ui_get_rect(layout, item);
   
   switch (item->type) {
+    case Item_Type_LABEL: {
+      u32 color = item->style.bg_color;
+      draw_rect(layout->renderer, rect, color);
+      V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
+      draw_string(layout->renderer, item->label, p, item->style.text_color);
+    } break;
+    
     case Item_Type_BUFFER: {
       draw_rect(layout->renderer, rect, item->style.bg_color);
       f32 border_width = item->style.border_width;
@@ -550,12 +573,22 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
 }
 
 void traverse_layout(ui_Layout *layout, ui_Item *root) {
+  gl_Funcs gl = global_os.gl;
+  
+  gl.ClearColor(0, 0, 0, 1);
+  gl.Clear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+  Renderer *renderer = layout->renderer;
+  
+  Rect2 window_rect = rect2_min_size(v2_mul(renderer->window_size, -0.5f),
+                                     renderer->window_size);
+  
   ui_Id next_hot = INVALID_UI_ID;
   
   ui_Item *stack[128];
   ui_Item *post_stack[128];
   i32 stack_count = 0;
   stack[stack_count++] = root;
+  
   
   while (stack_count) {
     ui_Item *item = stack[--stack_count];
@@ -647,8 +680,8 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
   
   
   V2 size = ui_compute_text_size(layout, label, item->style);
-  item->style.width.value = size.x + 16;
-  item->style.height.value = size.y;
+  item->size.x = size.x + 16;
+  item->size.y = size.y;
   
   Style dropdown_box = (Style){
     .flags = ui_ALIGN_STRETCH|ui_IGNORE_LAYOUT,

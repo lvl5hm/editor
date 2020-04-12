@@ -1056,6 +1056,14 @@ Rect2 rect2_apply_m4(Rect2 r, M4 m) {
   return result;
 }
 
+bool rect2_are_equal(Rect2 a, Rect2 b) {
+  bool result = a.min.x == b.min.x &&
+    a.min.y == b.min.y &&
+    a.max.x == b.max.x &&
+    a.max.y == b.max.y;
+  return result;
+}
+
 // rect2i
 
 typedef struct {

@@ -124,6 +124,8 @@ void execute_command(Editor *editor, Renderer *renderer, Command command) {
       system_ctx.allocator = system_allocator;
       push_context(system_ctx);
       editor->files = global_os.get_file_names(editor->path);
+      editor->active_panel_index = 2,
+      
       pop_context();
     } break;
     
@@ -179,108 +181,6 @@ void draw_command_button(ui_Layout *layout, ui_Id id, String label, Command comm
   }
 }
 
-void draw_layout(ui_Layout *layout, Renderer *r, os_Input *input) {
-  push_scratch_context();
-  
-  Editor *editor = layout->editor;
-  
-  f32 line_height = 40;
-  ui_Layout *l = layout;
-  layout->current_container = null;
-  l->p = v2(-r->window_size.x*0.5f, r->window_size.y*0.5f);
-  
-  ui_flex_begin(l, (Style){ 
-                .flags = ui_ALIGN_CENTER,
-                .width = px(r->window_size.x),
-                .height = px(r->window_size.y),
-                .bg_color = 0xFF000000,
-                }); {
-    Style button_box = default_button_style();
-    Style menu_bar_style = (Style){
-      .bg_color = 0xFF333333,
-      .width = ui_SIZE_STRETCH,
-    };
-    
-    ui_menu_bar_begin(l, menu_bar_style); {
-      ui_dropdown_menu_begin(l, ui_id(), const_string("file"), (Style){0}); {
-        draw_command_button(l, ui_id(), const_string("new"), Command_OPEN_FILE_DIALOG);
-        draw_command_button(l, ui_id(), const_string("open"), Command_OPEN_FILE_DIALOG);
-        ui_button(l, ui_id(), const_string("save"), button_box);
-        ui_button(l, ui_id(), const_string("exit"), button_box);
-        
-        ui_dropdown_menu_begin(l, ui_id(), const_string("settings"), (Style){
-                               .flags = ui_HORIZONTAL,
-                               }); 
-        {
-          ui_button(l, ui_id(), const_string("color theme"), button_box);
-          ui_button(l, ui_id(), const_string("options"), button_box);
-        } ui_dropdown_menu_end(l);
-      } ui_dropdown_menu_end(l);
-      
-      ui_dropdown_menu_begin(l, ui_id(), const_string("edit"), (Style){0}); {
-        draw_command_button(l, ui_id(), const_string("copy"), Command_COPY);
-        draw_command_button(l, ui_id(), const_string("paste"), Command_PASTE);
-        draw_command_button(l, ui_id(), const_string("cut"), Command_CUT);
-        ui_button(l, ui_id(), const_string("undo"), button_box);
-        ui_button(l, ui_id(), const_string("redo"), button_box);
-      } ui_dropdown_menu_end(l);
-      
-      ui_dropdown_menu_begin(l, ui_id(), const_string("panels"), (Style){0}); {
-        ui_button(l, ui_id(), const_string("foo"), button_box);
-        ui_button(l, ui_id(), const_string("bar"), button_box);
-        ui_button(l, ui_id(), const_string("baz"), button_box);
-      } ui_dropdown_menu_end(l);
-      
-      ui_dropdown_menu_begin(l, ui_id(), const_string("commands"), (Style){0}); {
-        ui_button(l, ui_id(), const_string("run command"), button_box);
-      } ui_dropdown_menu_end(l);
-    } ui_menu_bar_end(l);
-    
-    
-    // NOTE(lvl5): file lister
-    if (editor->file_dialog_open) {
-      ui_flex_begin(l, (Style){
-                    .flags = ui_IGNORE_LAYOUT|ui_ALIGN_STRETCH,
-                    .layer = 2,
-                    .width = 400,
-                    });
-      
-      for (u8 i = 0; i < sb_count(editor->files); i++) {
-        if (ui_button(l, ui_id_loop(i), editor->files[i], button_box)) {
-          editor->selected_file_name = editor->files[i];
-          execute_command(l->editor, l->renderer, Command_FILE_OPEN);
-        }
-      }
-      
-      ui_flex_end(l);
-    }
-    
-    ui_flex_begin(l, (Style){ 
-                  .flags = ui_HORIZONTAL,
-                  .width = px(ui_SIZE_STRETCH),
-                  .height = px(ui_SIZE_STRETCH),
-                  }); 
-    {
-      ui_panel(l, layout->editor->panels + 0, (Style){ 
-               .bg_color = 0xFFFF0000, 
-               .width = px(ui_SIZE_STRETCH), 
-               .height = px(ui_SIZE_STRETCH),
-               });
-      ui_panel(l, layout->editor->panels + 1, (Style){ 
-               .bg_color = 0xFFFF0000, 
-               .width = px(ui_SIZE_STRETCH), 
-               .height = px(ui_SIZE_STRETCH),
-               });
-    } ui_flex_end(l);
-  } ui_flex_end(l);
-  
-  
-  traverse_layout(l, l->current_container);
-  
-  pop_context();
-}
-
-
 extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   App_State *state = (App_State *)memory->data;
   
@@ -295,9 +195,8 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   
   
   if (!memory->initialized) {
-    u64 stamp_start = __rdtsc();
-    
     memory->initialized = true;
+    u64 stamp_start = __rdtsc();
     
     GLuint shader = gl_create_shader_from_file(os.gl, os.read_entire_file, const_string("shader.glsl"));
     Renderer *renderer = &state->renderer;
@@ -347,12 +246,20 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         };
         sb_push(editor->panels, panel);
       }
+      {
+        Panel panel = (Panel){
+          .buffer_view = (Buffer_View){
+            .buffer = make_empty_buffer(editor, const_string("<file path>")),
+          },
+          .type = Panel_Type_BUFFER,
+        };
+        sb_push(editor->panels, panel);
+      }
     }
     
     
     
     editor->active_panel_index = 0;
-    editor->menu_index = -1;
     
     editor->settings.keybinds = sb_new(Keybind, 32);
     Keybind *keybinds = editor->settings.keybinds;
@@ -474,23 +381,6 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     editor->settings.theme = monokai;
     
     
-#if 0    
-    Lister *lister = &editor->current_dir_files;
-    lister->items = os.get_file_names(const_string("src"));
-    for (u32 i = 0; i < sb_count(lister->items); i++) {
-      String file_name = lister->items[i];
-      String path = concat(const_string("src/"), file_name);
-      
-      Buffer *buffer = get_existing_buffer(editor, file_name);
-      if (!buffer) {
-        buffer = open_file_into_new_buffer(os, editor, path);
-        buffer->file_name = alloc_string(file_name.data, file_name.count);
-      }
-    }
-#endif
-    
-    
-    
     {
       static u64 total = 0;
       static u64 count = 0;
@@ -507,15 +397,10 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
   }
   
-  //glEnable(GL_DEPTH_TEST);
-  //glDisable(GL_DEPTH_TEST);
-  
   Editor *editor = &state->editor;
   Renderer *renderer = &state->renderer;
   Font *font = renderer->state.font;
   gl_Funcs gl = os.gl;
-  
-  
   
   
   os.collect_messages(memory->window, input);
@@ -554,38 +439,134 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   }
   
   
-  gl.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-  gl.Clear(GL_COLOR_BUFFER_BIT);
-  
-  V2 bottom_left = v2(-renderer->window_size.x*0.5f,
-                      -renderer->window_size.y*0.5f);
-  V2 top_left = v2_add(bottom_left, v2(0, renderer->window_size.y));
-  
-  Color_Theme theme = editor->settings.theme;
-  
-  {
-    Panel *active_panel = editor->panels + editor->active_panel_index;
-    if (active_panel->type == Panel_Type_BUFFER) {
-      if (!input->ctrl && !input->alt) {
-        if (input->char_count > 0) {
-          String str = make_string(input->chars, input->char_count);
-          buffer_input_string(active_panel->buffer_view.buffer, str);
-        }
+  Panel *active_panel = editor->panels + editor->active_panel_index;
+  if (active_panel->type == Panel_Type_BUFFER) {
+    if (!input->ctrl && !input->alt) {
+      if (input->char_count > 0) {
+        String str = make_string(input->chars, input->char_count);
+        buffer_input_string(active_panel->buffer_view.buffer, str);
       }
     }
   }
   
   
-  gl.ClearColor(0, 0, 0, 1);
-  gl.Clear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+  
+  // NOTE(lvl5): draw layout
+  
+  push_scratch_context();
+  
+  renderer_begin_render(renderer);
   
   V2 ws = renderer->window_size;
-  f32 menu_height = font->line_height;
   
+  render_clip(renderer, rect2_min_size(v2(-ws.x*0.5f, -ws.y*0.5f), ws));
   
-  renderer_begin_render(renderer, rect2_min_size(v2_mul(ws, -0.5f), ws));
-  draw_layout(&editor->layout, renderer, input);
+  ui_Layout *l = &editor->layout;
+  l->current_container = null;
+  l->p = v2(-ws.x*0.5f, ws.y*0.5f);
+  
+  ui_flex_begin(l, (Style){ 
+                .flags = ui_ALIGN_CENTER,
+                .width = px(ws.x),
+                .height = px(ws.y),
+                .bg_color = 0xFF000000,
+                }); {
+    Style button_box = default_button_style();
+    Style menu_bar_style = (Style){
+      .bg_color = 0xFF333333,
+      .width = ui_SIZE_STRETCH,
+    };
+    
+    ui_menu_bar_begin(l, menu_bar_style); {
+      ui_dropdown_menu_begin(l, ui_id(), const_string("file"), (Style){0}); {
+        draw_command_button(l, ui_id(), const_string("new"), Command_OPEN_FILE_DIALOG);
+        draw_command_button(l, ui_id(), const_string("open"), Command_OPEN_FILE_DIALOG);
+        ui_button(l, ui_id(), const_string("save"), button_box);
+        ui_button(l, ui_id(), const_string("exit"), button_box);
+        
+        ui_dropdown_menu_begin(l, ui_id(), const_string("settings"), (Style){
+                               .flags = ui_HORIZONTAL,
+                               }); 
+        {
+          ui_button(l, ui_id(), const_string("color theme"), button_box);
+          ui_button(l, ui_id(), const_string("options"), button_box);
+        } ui_dropdown_menu_end(l);
+      } ui_dropdown_menu_end(l);
+      
+      ui_dropdown_menu_begin(l, ui_id(), const_string("edit"), (Style){0}); {
+        draw_command_button(l, ui_id(), const_string("copy        (ctrl+c)"), Command_COPY);
+        draw_command_button(l, ui_id(), const_string("paste       (ctrl+v)"), Command_PASTE);
+        draw_command_button(l, ui_id(), const_string("cut         (ctrl+x)"), Command_CUT);
+        ui_button(l, ui_id(), const_string("undo        (ctrl+z)"), button_box);
+        ui_button(l, ui_id(), const_string("redo  (ctrl+shift+z)"), button_box);
+      } ui_dropdown_menu_end(l);
+      
+      ui_dropdown_menu_begin(l, ui_id(), const_string("panels"), (Style){0}); {
+        ui_button(l, ui_id(), const_string("foo"), button_box);
+        ui_button(l, ui_id(), const_string("bar"), button_box);
+        ui_button(l, ui_id(), const_string("baz"), button_box);
+      } ui_dropdown_menu_end(l);
+      
+      ui_dropdown_menu_begin(l, ui_id(), const_string("commands"), (Style){0}); {
+        ui_button(l, ui_id(), const_string("run command"), button_box);
+      } ui_dropdown_menu_end(l);
+    } ui_menu_bar_end(l);
+    
+    
+    // NOTE(lvl5): file lister
+    if (editor->file_dialog_open) {
+      ui_flex_begin(l, (Style){
+                    .flags = ui_IGNORE_LAYOUT|ui_ALIGN_STRETCH,
+                    .layer = 2,
+                    .width = 700,
+                    });
+      ui_panel(l, editor->panels + 2, (Style){
+               .bg_color = 0xFFFF0000,
+               .width = ui_SIZE_STRETCH,
+               .height = (f32)l->renderer->state.font->line_height*2 + 5,
+               });
+      
+      for (u8 i = 0; i < sb_count(editor->files); i++) {
+        if (ui_button(l, ui_id_loop(i), editor->files[i], button_box)) {
+          editor->selected_file_name = editor->files[i];
+          execute_command(l->editor, l->renderer, Command_FILE_OPEN);
+        }
+      }
+      
+      ui_flex_end(l);
+    }
+    
+#if 1
+    ui_flex_begin(l, (Style){ 
+                  .flags = ui_HORIZONTAL,
+                  .width = px(ui_SIZE_STRETCH),
+                  .height = px(ui_SIZE_STRETCH),
+                  }); 
+    {
+      ui_panel(l, editor->panels + 0, (Style){ 
+               .bg_color = 0xFFFF0000, 
+               .width = px(ui_SIZE_STRETCH), 
+               .height = px(ui_SIZE_STRETCH),
+               });
+      ui_panel(l, editor->panels + 1, (Style){ 
+               .bg_color = 0xFFFF0000, 
+               .width = px(ui_SIZE_STRETCH), 
+               .height = px(ui_SIZE_STRETCH),
+               });
+    } ui_flex_end(l);
+#endif
+  } ui_flex_end(l);
+  
+  traverse_layout(l, l->current_container);
+  
   renderer_end_render(gl, renderer);
+  
+  pop_context();
+  
+  
+  
+  
+  
   
   
   

@@ -93,8 +93,6 @@ typedef struct Editor {
   Exchange exchange;
   
   i32 generation;
-  
-  i32 menu_index;
   ui_Layout layout;
 } Editor;
 
