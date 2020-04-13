@@ -347,6 +347,7 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         Color_Theme *theme = item->buffer.theme;
         V2 *scroll = item->buffer.scroll;
         Rect2 buffer_rect = item->buffer.rect;
+        V2 buffer_rect_size = rect2_get_size(buffer_rect);
         
         V2 offset = v2(buffer_rect.min.x,
                        buffer_rect.max.y + scroll->y*font->line_spacing);
@@ -355,16 +356,14 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
         
         f32 PADDING = 4.0f;
         
-        f32 lines_on_screen = r->window_size.y/font->line_spacing;
+        f32 lines_on_screen = buffer_rect_size.y/font->line_spacing;
         f32 border_top = scroll->y + PADDING;
         
         // TODO(lvl5): something is wrong with border_bottom
         f32 border_bottom = scroll->y + lines_on_screen - PADDING;
         
         i32 line_index = 0;
-        
         i32 added = 0;
-        
         bool cursor_rendered = false;
         
         Syntax *buffer_colors = buffer->cache.colors;

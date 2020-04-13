@@ -18,9 +18,6 @@ typedef enum {
   T_BREAK,
   T_SIZEOF,
   
-  T_SIGNED,
-  T_UNSIGNED,
-  
   T_STRUCT,
   T_ENUM,
   T_UNION,
@@ -58,6 +55,8 @@ typedef enum {
   T_LONG,
   T_FLOAT,
   T_DOUBLE,
+  T_SIGNED,
+  T_UNSIGNED,
   T_VOID,
   T_TYPE_LAST = T_VOID,
   

@@ -30,10 +30,9 @@ in vec4 fr_color;
 
 out vec4 color;
 uniform sampler2D texture_image;
+ivec2 atlas_size = textureSize(texture_image, 0);
 
 void main() {
-  ivec2 atlas_size = textureSize(texture_image, 0);
-  
   vec2 uv = floor(tex_coord) + 0.5; // snaps to the nearest pixel
   uv += 1.0 - clamp((1.0 - fract(tex_coord)), 0.0, 1.0); // sets the blend coordinates
   

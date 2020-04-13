@@ -7,6 +7,9 @@
 #define ui_IGNORE_LAYOUT (1 << 2)
 #define ui_HIDDEN (1 << 3)
 #define ui_ALIGN_CENTER (1 << 4)
+#define ui_FOCUSABLE (1 << 5)
+#define ui_FOCUS_TRAP (1 << 6)
+
 
 typedef enum {
   Unit_PIXELS,
@@ -126,6 +129,8 @@ typedef struct {
   
   ui_Id hot;
   ui_Id active;
+  
+  V2 ignored_mouse_p;
 } ui_Layout;
 
 

@@ -203,6 +203,8 @@ void ui_label(ui_Layout *layout, String label, Style style) {
 }
 
 bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
+  style.flags |= ui_FOCUSABLE;
+  
   ui_Item *item = layout_get_item(layout, Item_Type_BUTTON, style);
   item->id = id;
   item->label = str;
@@ -413,23 +415,37 @@ f32 ui_get_layer(ui_Item *item) {
   return layer;
 }
 
+bool ui_mouse_in_rect(ui_Layout *layout, Rect2 rect) {
+  bool result = false;
+  if (!v2_equal(layout->ignored_mouse_p, layout->input->mouse.p)) {
+    result = point_in_rect(layout->input->mouse.p, rect);
+  }
+  return result;
+}
+
 void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
   Rect2 rect = ui_get_rect(layout, item);
   
+  u32 color = item->style.bg_color;
+  if (ui_id_valid(item->id) && ui_ids_equal(layout->active, item->id)) {
+    color = item->style.active_bg_color;
+  }
+  draw_rect(layout->renderer, rect, color);
+  
+  
+  f32 border_width = item->style.border_width;
+  if (border_width) {
+    draw_rect_outline(layout->renderer, rect, border_width, item->style.border_color);
+  }
+  
   switch (item->type) {
     case Item_Type_LABEL: {
-      u32 color = item->style.bg_color;
-      draw_rect(layout->renderer, rect, color);
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
       draw_string(layout->renderer, item->label, p, item->style.text_color);
     } break;
     
     case Item_Type_BUFFER: {
-      draw_rect(layout->renderer, rect, item->style.bg_color);
       f32 border_width = item->style.border_width;
-      if (border_width) {
-        draw_rect_outline(layout->renderer, rect, border_width, item->style.border_color);
-      }
       rect.min.x += border_width;
       rect.min.y += border_width;
       rect.max.x -= border_width;
@@ -447,17 +463,7 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
       
       state->clicked = ui_is_clicked(layout, item->id);
       
-      u32 color = item->style.bg_color;
-      if (ui_ids_equal(layout->active, item->id)) {
-        color = item->style.active_bg_color;
-      }
-      draw_rect(layout->renderer, rect, color);
-      
-      if (ui_ids_equal(layout->hot, item->id)) {
-        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
-      }
-      
-      if (point_in_rect(layout->input->mouse.p, rect)) {
+      if (ui_mouse_in_rect(layout, rect)) {
         ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
         if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
           *next_hot = item->id;
@@ -479,16 +485,12 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
       
       os_Button left = layout->input->mouse.left;
       
-      if (ui_ids_equal(layout->hot, item->id)) {
-        draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
-      }
-      
       if (ui_is_clicked(layout, item->id)) {
         state->open = !state->open;
       }
       
       // NOTE(lvl5): open the menu if clicked
-      if (point_in_rect(layout->input->mouse.p, rect)) {
+      if (ui_mouse_in_rect(layout, rect)) {
         ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
         if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
           *next_hot = item->id;
@@ -540,7 +542,7 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
       
       // TODO(lvl5): make the arrow part of the layout?
-      // draw the arrow
+      // NOTE(lvl5): draw the arrow
       draw_string(layout->renderer, item->label, p, 0xFFFFFFFF);
       {
         V2 arrow_size = v2(6, 9);
@@ -565,11 +567,91 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
         render_restore(layout->renderer);
       }
     } break;
-    
-    default: {
-      draw_rect(layout->renderer, rect, item->style.bg_color);
-    } break;
   }
+  
+  
+  if (ui_ids_equal(item->id, *next_hot) && ui_id_valid(item->id)) {
+    draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
+  }
+}
+
+u32 ui_get_self_index(ui_Item *item) {
+  u32 result = 0;
+  while (item->parent->children + result != item) result++;
+  return result;
+}
+
+
+ui_Item *ui_get_prev_focusable_item(ui_Item *item) {
+  ui_Item *result = item;
+  ui_Item *cur = item;
+  
+  while (true) {
+    if (!cur->parent) goto end;
+    i32 self_index = ui_get_self_index(cur);
+    
+    while (self_index == 0) {
+      if (flag_is_set(cur->parent->style.flags, ui_FOCUS_TRAP)) {
+        self_index = sb_count(cur->parent->children);
+      } else {
+        cur = cur->parent;
+        if (!cur->parent) goto end;
+        self_index = ui_get_self_index(cur);
+      }
+    }
+    
+    ui_Item *sibling = cur->parent->children + self_index - 1;
+    cur = sibling;
+    
+    if (!flag_is_set(cur->style.flags, ui_HIDDEN))  {
+      if (cur->children && sb_count(cur->children)) {
+        cur = cur->children + sb_count(cur->children) - 1;
+      }
+      
+      if (flag_is_set(cur->style.flags, ui_FOCUSABLE)) {
+        result = cur;
+        goto end;
+      }
+    }
+  }
+  end:
+  return result;
+}
+
+ui_Item *ui_get_next_focusable_item(ui_Item *item) {
+  ui_Item *result = item;
+  ui_Item *cur = item;
+  
+  while (true) {
+    if (!cur->parent) goto end;
+    i32 self_index = ui_get_self_index(cur);
+    
+    while (self_index == (i32)sb_count(cur->parent->children) - 1) {
+      if (flag_is_set(cur->parent->style.flags, ui_FOCUS_TRAP)) {
+        self_index = -1;
+      } else {
+        cur = cur->parent;
+        if (!cur->parent) goto end;
+        self_index = ui_get_self_index(cur);
+      }
+    }
+    
+    ui_Item *sibling = cur->parent->children + self_index + 1;
+    cur = sibling;
+    
+    if (!flag_is_set(cur->style.flags, ui_HIDDEN))  {
+      if (cur->children && sb_count(cur->children)) {
+        cur = cur->children + 0;
+      }
+      
+      if (flag_is_set(cur->style.flags, ui_FOCUSABLE)) {
+        result = cur;
+        goto end;
+      }
+    }
+  }
+  end:
+  return result;
 }
 
 void traverse_layout(ui_Layout *layout, ui_Item *root) {
@@ -582,7 +664,10 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   Rect2 window_rect = rect2_min_size(v2_mul(renderer->window_size, -0.5f),
                                      renderer->window_size);
   
-  ui_Id next_hot = INVALID_UI_ID;
+  ui_Id next_hot = layout->hot;
+  if (!v2_equal(layout->ignored_mouse_p, layout->input->mouse.p)) {
+    next_hot = INVALID_UI_ID;
+  }
   
   ui_Item *stack[128];
   ui_Item *post_stack[128];
@@ -603,7 +688,21 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
         layout->renderer->state.z = item->style.layer;
       }
       
+      
       ui_draw_item(layout, item, &next_hot);
+      
+      if (ui_ids_equal(layout->hot, item->id) &&
+          ui_id_valid(item->id)) 
+      {
+        if (layout->input->keys[os_Keycode_ARROW_DOWN].pressed) {
+          layout->ignored_mouse_p = layout->input->mouse.p;
+          next_hot = ui_get_next_focusable_item(item)->id;
+        } else if (layout->input->keys[os_Keycode_ARROW_UP].pressed) {
+          layout->ignored_mouse_p = layout->input->mouse.p;
+          next_hot = ui_get_prev_focusable_item(item)->id;
+        }
+      }
+      
       
       if (item->children && sb_count(item->children) > 0) {
         // return to the item after visiting all descendents
@@ -637,7 +736,7 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
             for (u32 i = 0; i < sb_count(descendents); i++) {
               ui_Item *child = descendents[i];
               Rect2 child_rect = ui_get_rect(layout, child);
-              if (point_in_rect(layout->input->mouse.p, child_rect)) {
+              if (ui_mouse_in_rect(layout, child_rect)) {
                 mouse_over_menu = true;
                 break;
               }
@@ -671,6 +770,7 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
   ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
   Style toggle_style = default_button_style();
   toggle_style.bg_color = 0xFF333333;
+  toggle_style.flags |= ui_FOCUSABLE;
   
   ui_Item *item = layout_get_item(layout, Item_Type_MENU_TOGGLE_BUTTON, 
                                   toggle_style);

@@ -613,6 +613,10 @@ V2i v2i_hadamard(V2i a, V2i b) {
   return result;
 }
 
+bool v2_equal(V2 a, V2 b) {
+  bool result = a.x == b.x && a.y == b.y;
+  return result;
+}
 
 // mat2
 
