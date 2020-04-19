@@ -54,14 +54,25 @@ typedef struct {
   
   f32 border_width;
   u32 border_color;
-  u32 active_border_color;
   
   u32 text_color;
   u32 bg_color;
-  u32 active_bg_color;
   f32 layer;
+  
+  V2 translate;
+  V2 scale;
+  f32 rotate;
+  
+  
+  u32 active_border_color;
+  u32 active_bg_color;
 } Style;
 
+// normal style
+// hot style
+// active style
+// focused style
+// transition animations??
 
 
 typedef enum {
@@ -76,13 +87,17 @@ typedef enum {
   Item_Type_LABEL,
 } Item_Type;
 
-typedef struct {
-  u8 func;
-  u8 loop;
-  u8 call;
+typedef union {
+  struct {
+    u32 ptr;
+  };
+  struct {
+    u32 parent_ptr;
+    u16 index;
+    u16 type;
+  };
+  u64 full;
 } ui_Id;
-
-#define INVALID_UI_ID (ui_Id){.func=0, .call = 0, .loop = 0}
 
 typedef struct ui_Item ui_Item;
 typedef struct ui_Item {
@@ -91,34 +106,44 @@ typedef struct ui_Item {
   V2 min_size;
   
   Item_Type type;
-  ui_Id id;
   
   Style style;
-  ui_Item *children;
+  ui_Item **children;
   ui_Item *parent;
   
+  ui_Id id;
+  
+  bool used; // if the item was not used last frame, remove it from the hashtable
   bool rendered;
   
   // stuff that needs to be remembered until the end of a frame to draw
   String label;
   Buffer_View *buffer_view;
   V2 *scroll;
+  
+  // state
+  bool open;
+  bool clicked;
+  
+  
+  // temp stuff
+  u32 current_child_index;
 } ui_Item;
 
 
-#define LAYOUT_BUTTON_MAX 512
+#define LAYOUT_ITEM_MAX 512
 
-typedef struct {
-  bool open;
-  bool clicked;
-} ui_State;
+#define UI_UNOCCUPIED 0
+#define UI_OCCUPIED 1
+#define UI_TOMBSTONE 2
 
 typedef struct {
   V2 p;
   
-  ui_Id keys[LAYOUT_BUTTON_MAX];
-  ui_State values[LAYOUT_BUTTON_MAX];
-  bool occupancy[LAYOUT_BUTTON_MAX];
+  ui_Id keys[LAYOUT_ITEM_MAX];
+  ui_Item values[LAYOUT_ITEM_MAX];
+  i8 occupancy[LAYOUT_ITEM_MAX];
+  
   u32 count;
   
   ui_Item *current_container;
