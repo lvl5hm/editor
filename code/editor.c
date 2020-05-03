@@ -175,8 +175,8 @@ extern void thread_handle_reload(Global_Context_Info *info, Os os) {
 }
 
 
-void draw_command_button(ui_Layout *layout, String label, Command command) {
-  if (ui_button(layout, label, default_button_style())) {
+void draw_command_button(ui_Layout *layout, ui_Id id, String label, Command command) {
+  if (ui_button(layout, id, label, default_button_style())) {
     execute_command(layout->editor, layout->renderer, command);
   }
 }
@@ -478,37 +478,37 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     };
     
     ui_menu_bar_begin(l, menu_bar_style); {
-      ui_dropdown_menu_begin(l, const_string("file"), (Style){0}); {
-        draw_command_button(l, const_string("new"), Command_OPEN_FILE_DIALOG);
-        draw_command_button(l, const_string("open"), Command_OPEN_FILE_DIALOG);
-        ui_button(l, const_string("save"), button_box);
-        ui_button(l, const_string("exit"), button_box);
+      ui_dropdown_menu_begin(l, ui_id(), const_string("file"), (Style){0}); {
+        draw_command_button(l, ui_id(), const_string("new"), Command_OPEN_FILE_DIALOG);
+        draw_command_button(l, ui_id(), const_string("open"), Command_OPEN_FILE_DIALOG);
+        ui_button(l, ui_id(), const_string("save"), button_box);
+        ui_button(l, ui_id(), const_string("exit"), button_box);
         
-        ui_dropdown_menu_begin(l, const_string("settings"), (Style){
+        ui_dropdown_menu_begin(l, ui_id(), const_string("settings"), (Style){
                                .flags = ui_HORIZONTAL,
                                }); 
         {
-          ui_button(l,  const_string("color theme"), button_box);
-          ui_button(l,  const_string("options"), button_box);
+          ui_button(l, ui_id(), const_string("color theme"), button_box);
+          ui_button(l, ui_id(), const_string("options"), button_box);
         } ui_dropdown_menu_end(l);
       } ui_dropdown_menu_end(l);
       
-      ui_dropdown_menu_begin(l,  const_string("edit"), (Style){0}); {
-        draw_command_button(l,  const_string("copy        (ctrl+c)"), Command_COPY);
-        draw_command_button(l,  const_string("paste       (ctrl+v)"), Command_PASTE);
-        draw_command_button(l,  const_string("cut         (ctrl+x)"), Command_CUT);
-        ui_button(l,  const_string("undo        (ctrl+z)"), button_box);
-        ui_button(l,  const_string("redo  (ctrl+shift+z)"), button_box);
+      ui_dropdown_menu_begin(l, ui_id(), const_string("edit"), (Style){0}); {
+        draw_command_button(l, ui_id(), const_string("copy        (ctrl+c)"), Command_COPY);
+        draw_command_button(l, ui_id(), const_string("paste       (ctrl+v)"), Command_PASTE);
+        draw_command_button(l, ui_id(), const_string("cut         (ctrl+x)"), Command_CUT);
+        ui_button(l, ui_id(), const_string("undo        (ctrl+z)"), button_box);
+        ui_button(l, ui_id(), const_string("redo  (ctrl+shift+z)"), button_box);
       } ui_dropdown_menu_end(l);
       
-      ui_dropdown_menu_begin(l,  const_string("panels"), (Style){0}); {
-        ui_button(l,  const_string("foo"), button_box);
-        ui_button(l,  const_string("bar"), button_box);
-        ui_button(l,  const_string("baz"), button_box);
+      ui_dropdown_menu_begin(l, ui_id(), const_string("panels"), (Style){0}); {
+        ui_button(l, ui_id(), const_string("foo"), button_box);
+        ui_button(l, ui_id(), const_string("bar"), button_box);
+        ui_button(l, ui_id(), const_string("baz"), button_box);
       } ui_dropdown_menu_end(l);
       
-      ui_dropdown_menu_begin(l,  const_string("commands"), (Style){0}); {
-        ui_button(l,  const_string("run command"), button_box);
+      ui_dropdown_menu_begin(l, ui_id(), const_string("commands"), (Style){0}); {
+        ui_button(l, ui_id(), const_string("run command"), button_box);
       } ui_dropdown_menu_end(l);
     } ui_menu_bar_end(l);
     
@@ -527,7 +527,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                });
       
       for (u8 i = 0; i < sb_count(editor->files); i++) {
-        if (ui_button(l, editor->files[i], button_box)) {
+        if (ui_button(l, ui_id_loop(i), editor->files[i], button_box)) {
           editor->selected_file_name = editor->files[i];
           execute_command(l->editor, l->renderer, Command_FILE_OPEN);
         }

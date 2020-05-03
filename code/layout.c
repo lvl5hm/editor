@@ -10,87 +10,80 @@ ui_Layout make_layout(Renderer *r, os_Input *input, Editor *editor) {
   return result;
 }
 
-ui_Id invalid_ui_id() {
-  return (ui_Id){0};
-}
+
+#define ui_id_loop_func(l, f) (ui_Id){.call = __COUNTER__ + 1, .loop = l, .func = f}
+#define ui_id_loop(l) ui_id_loop_func(l, 0)
+#define ui_id_func(f) ui_id_loop_func(0, f)
+#define ui_id() ui_id_loop_func(0, 0)
 
 bool ui_ids_equal(ui_Id a, ui_Id b) {
-  bool result = a.full == b.full;
-  return result;
-}
-
-bool ui_id_valid(ui_Id id) {
-  bool result = !ui_ids_equal(id, invalid_ui_id());
+  bool result = a.call == b.call && a.loop == b.loop && a.func == b.func;
   return result;
 }
 
 u32 hash_ui_id(ui_Id id) {
-  u32 result = (id.parent_ptr) ^ (id.index << 7) ^ (id.type << 13);
+  u32 result = (id.call) ^ (id.loop << 7) ^ (id.func << 13);
   return result;
 }
 
-ui_Id ui_make_child_id(ui_Item *parent, u32 child_index, Item_Type type) {
-  ui_Id result = {
-    .parent_ptr = (u32)(u64)parent,
-    .index = (u16)child_index,
-    .type = (u16)type,
-  };
-  return result;
-}
-
-void ui_remove_item(ui_Layout *layout, ui_Id id) {
+u32 get_ui_state_index(ui_Layout *layout, ui_Id id) {
   u32 hash = hash_ui_id(id);
+  u32 result = 0;
   
   while (true) {
     hash = hash % array_count(layout->keys);
     ui_Id key = layout->keys[hash];
     
-    if (ui_ids_equal(key, id)) {
-      layout->occupancy[hash] = UI_TOMBSTONE;
+    if (!layout->occupancy[hash]) {
+      result = hash;
       break;
-    } else {
-      hash++;
-    }
-  }
-}
-
-// can return an empty item
-u32 ui_get_item_index(ui_Layout *layout, ui_Id id) {
-  u32 hash = hash_ui_id(id);
-  i32 first_tombstone_index = -1;
-  
-  while (true) {
-    hash = hash % array_count(layout->keys);
-    ui_Id key = layout->keys[hash];
-    i8 occupancy = layout->occupancy[hash];
-    
-    if (occupancy == UI_TOMBSTONE) {
-      if (first_tombstone_index == -1) {
-        first_tombstone_index = hash;
-      }
-    } else if (occupancy == UI_UNOCCUPIED || ui_ids_equal(key, id)) {
-      if (first_tombstone_index != -1) {
-        hash = first_tombstone_index;
-      }
+    } else if (ui_ids_equal(key, id)) {
+      result = hash;
       break;
     } else {
       hash++;
     }
   }
   
-  return hash;
+  return result;
 }
 
-ui_Item *ui_get_item_by_id(ui_Layout *layout, ui_Id id) {
-  ui_Item *result = null;
-  u32 index = ui_get_item_index(layout, id);
-  if (layout->occupancy[index]) {
+bool ui_id_valid(ui_Id id) {
+  bool result = !ui_ids_equal(id, INVALID_UI_ID);
+  return result;
+}
+
+ui_State *layout_get_state(ui_Layout *layout, ui_Id id) {
+  ui_State *result = null;
+  
+  if (ui_id_valid(id)) {
+    u32 index = get_ui_state_index(layout, id);
     result = layout->values + index;
+    if (!layout->occupancy[index]) {
+      layout->keys[index] = id;
+      layout->occupancy[index] = true;
+    }
   }
   return result;
 }
 
-void ui_init_item(ui_Layout *layout, ui_Item *result, Style style) {
+
+ui_Item *layout_get_item(ui_Layout *layout, Item_Type type, Style style) {
+  ui_Item *result = null;
+  if (layout->current_container) {
+    u32 index = sb_count(layout->current_container->children);
+    sb_push(layout->current_container->children, (ui_Item){0});
+    result = layout->current_container->children + index;
+  } else {
+    result = alloc_struct(ui_Item);
+    ui_Item zero_item = {0};
+    *result = zero_item;
+  }
+  
+  result->style = style;
+  result->parent = layout->current_container;
+  result->type = type;
+  result->children = sb_new(ui_Item, 8);
   if (style.width.unit == Unit_PIXELS) {
     result->size.x = style.width.value;
   }
@@ -103,50 +96,7 @@ void ui_init_item(ui_Layout *layout, ui_Item *result, Style style) {
   if (style.min_height.unit == Unit_PIXELS) {
     result->min_size.y = style.min_height.value;
   }
-}
-
-
-ui_Item *layout_push_item(ui_Layout *layout, ui_Id id, Item_Type type, Style style) {
-  if (!ui_id_valid(id)) {
-    ui_Item *parent = layout->current_container;
-    u32 index = layout->current_container
-      ? layout->current_container->current_child_index
-      : 0;
-    id = ui_make_child_id(parent, index, type);
-  }
   
-  u32 item_index = ui_get_item_index(layout, id);
-  ui_Item *result = layout->values + item_index;
-  
-  result->current_child_index = 0;
-  result->style = style;
-  result->parent = layout->current_container;
-  result->id = id;
-  result->type = type;
-  result->rendered = false;
-  
-  if (layout->occupancy[item_index] != UI_OCCUPIED) {
-    layout->occupancy[item_index] = UI_OCCUPIED;
-    layout->keys[item_index] = id;
-    
-    Context ctx = *get_context();
-    ctx.allocator = system_allocator;
-    push_context(ctx);
-    result->children = sb_new(ui_Item *, 8);
-    pop_context(ctx);
-    
-    if (layout->current_container) {
-      u32 index = sb_count(layout->current_container->children);
-      sb_push(layout->current_container->children, result);
-    }
-  }
-  
-  
-  ui_init_item(layout, result, style);
-  
-  if (layout->current_container) {
-    layout->current_container->current_child_index++;
-  }
   
   return result;
 }
@@ -163,7 +113,7 @@ V2 get_reported_dims(ui_Item *item) {
 }
 
 void ui_flex_begin_ex(ui_Layout *layout, Style style, Item_Type type) {
-  ui_Item *item = layout_push_item(layout, invalid_ui_id(), type, style);
+  ui_Item *item = layout_get_item(layout, type, style);
   layout->current_container = item;
 }
 void ui_flex_begin(ui_Layout *layout, Style style) {
@@ -178,7 +128,7 @@ V2 ui_flex_calc_auto_dim(ui_Item *item, i32 main_axis) {
        child_index < sb_count(item->children);
        child_index++) 
   {
-    ui_Item *child = item->children[child_index];
+    ui_Item *child = item->children + child_index;
     V2 child_dims = get_reported_dims(child);
     
     result.e[main_axis] += child_dims.e[main_axis];
@@ -240,7 +190,7 @@ V2 ui_compute_text_size(ui_Layout *layout, String str, Style style) {
 }
 
 void ui_label(ui_Layout *layout, String label, Style style) {
-  ui_Item *item = layout_push_item(layout, invalid_ui_id(), Item_Type_LABEL, style);
+  ui_Item *item = layout_get_item(layout, Item_Type_LABEL, style);
   item->label = label;
   
   V2 size = ui_compute_text_size(layout, label, item->style);
@@ -252,14 +202,15 @@ void ui_label(ui_Layout *layout, String label, Style style) {
   }
 }
 
-bool ui_button(ui_Layout *layout, String str, Style style) {
+bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
   style.flags |= ui_FOCUSABLE;
   
-  
-  ui_Id id = (ui_Id){ .ptr = (u32)(u64)str.data };
-  ui_Item *item = layout_push_item(layout, id, Item_Type_BUTTON, style);
+  ui_Item *item = layout_get_item(layout, Item_Type_BUTTON, style);
+  item->id = id;
   item->label = str;
-  bool result = item->clicked;
+  
+  ui_State *state = layout_get_state(layout, id);
+  bool result = state->clicked;
   
   V2 size = ui_compute_text_size(layout, str, item->style);
   if (style.width.value == ui_SIZE_AUTO) {
@@ -273,7 +224,7 @@ bool ui_button(ui_Layout *layout, String str, Style style) {
 }
 
 void ui_buffer(ui_Layout *layout, Buffer_View *buffer_view, V2 *scroll, Style style) {
-  ui_Item *item = layout_push_item(layout, invalid_ui_id(), Item_Type_BUFFER, style);
+  ui_Item *item = layout_get_item(layout, Item_Type_BUFFER, style);
   item->buffer_view = buffer_view;
   item->scroll = scroll;
 }
@@ -322,7 +273,7 @@ bool ui_is_clicked(ui_Layout *layout, ui_Id id) {
       if (ui_ids_equal(layout->hot, id)) {
         result = true;
       }
-      layout->active = invalid_ui_id();
+      layout->active = INVALID_UI_ID;
     }
   } else if (ui_ids_equal(layout->hot, id)) {
     if (left.went_down) {
@@ -346,7 +297,7 @@ ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
     
     if (!flag_is_set(cur->style.flags, ui_HIDDEN)) {
       for (u32 i = 0; i < sb_count(cur->children); i++) {
-        ui_Item *child = cur->children[i];
+        ui_Item *child = cur->children + i;
         stack[stack_count++] = child;
         assert(stack_count <= array_count(stack));
       }
@@ -367,7 +318,7 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
        child_index < sb_count(item->children);
        child_index++) 
   {
-    ui_Item *child = item->children[child_index];
+    ui_Item *child = item->children + child_index;
     if (flag_is_set(child->style.flags, ui_HIDDEN)) {
       continue;
     }
@@ -412,7 +363,7 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
        child_index < sb_count(item->children);
        child_index++) 
   {
-    ui_Item *child = item->children[child_index];
+    ui_Item *child = item->children + child_index;
     
     if (child->style.dims[main_axis].value == ui_SIZE_STRETCH) {
       child->size.e[main_axis] = size_per_stretch;
@@ -435,6 +386,22 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
       p.e[main_axis] -= dim;
     }
   }
+}
+
+ui_Item *ui_get_item_by_id(ui_Layout *layout, ui_Id id) {
+  ui_Item *root = layout->current_container;
+  while (root->parent) root = root->parent;
+  
+  ui_Item **descendents = ui_scratch_get_all_descendents(root);
+  
+  ui_Item *result = null;
+  for (u32 i = 0; i < sb_count(descendents); i++) {
+    if (ui_ids_equal(descendents[i]->id, id)) {
+      result = descendents[i];
+      break;
+    }
+  }
+  return result;
 }
 
 f32 ui_get_layer(ui_Item *item) {
@@ -492,11 +459,13 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
     } break;
     
     case Item_Type_BUTTON: {
-      item->clicked = ui_is_clicked(layout, item->id);
+      ui_State *state = layout_get_state(layout, item->id);
+      
+      state->clicked = ui_is_clicked(layout, item->id);
       
       if (ui_mouse_in_rect(layout, rect)) {
         ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
-        if (!prev_hot || ui_get_layer(item) >= ui_get_layer(prev_hot)) {
+        if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
           *next_hot = item->id;
         }
       }
@@ -506,8 +475,10 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
     } break;
     
     case Item_Type_MENU_TOGGLE_BUTTON: {
+      ui_State *state = layout_get_state(layout, item->id);
+      
       u32 color = item->style.bg_color;
-      if (item->open || ui_ids_equal(layout->active, item->id)) {
+      if (state->open || ui_ids_equal(layout->active, item->id)) {
         color = item->style.active_bg_color;
       }
       draw_rect(layout->renderer, rect, color);
@@ -515,13 +486,13 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
       os_Button left = layout->input->mouse.left;
       
       if (ui_is_clicked(layout, item->id)) {
-        item->open = !item->open;
+        state->open = !state->open;
       }
       
       // NOTE(lvl5): open the menu if clicked
       if (ui_mouse_in_rect(layout, rect)) {
         ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
-        if (!prev_hot || ui_get_layer(item) >= ui_get_layer(prev_hot)) {
+        if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
           *next_hot = item->id;
         }
       }
@@ -533,34 +504,34 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
         menu_bar = null;
       }
       
-      if (!item->open && menu_bar && 
+      if (!state->open && menu_bar && 
           ui_ids_equal(layout->hot, item->id)) 
       {
         for (u32 menu_index = 0; 
              menu_index < sb_count(menu_bar->children);
              menu_index++) 
         {
-          ui_Item *menu_wrapper = menu_bar->children[menu_index];
-          ui_Item *menu = menu_wrapper->children[0];
+          ui_Item *menu_wrapper = menu_bar->children + menu_index;
+          ui_Item *menu = menu_wrapper->children + 0;
           Rect2 menu_rect = ui_get_rect(layout, menu);
           
-          ui_Item *other = ui_get_item_by_id(layout, menu->id);
-          if (other->open) {
-            other->open = false;
-            item->open = true;
+          ui_State *other_state = layout_get_state(layout, menu->id);
+          if (other_state->open) {
+            other_state->open = false;
+            state->open = true;
           }
         }
       }
       
       // NOTE(lvl5): close the menu if a button is clicked
-      ui_Item *dropdown = item->parent->children[1];
+      ui_Item *dropdown = item->parent->children + 1;
       ui_Item **descendents = ui_scratch_get_all_descendents(dropdown);
       for (u32 i = 0; i < sb_count(descendents); i++) {
         ui_Item *child = descendents[i];
         if (child->type == Item_Type_BUTTON) {
-          ui_Item *button = ui_get_item_by_id(layout, child->id);
-          if (button->clicked) {
-            item->open = false;
+          ui_State *button_state = layout_get_state(layout, child->id);
+          if (button_state->clicked) {
+            state->open = false;
             break;
           }
         }
@@ -584,7 +555,7 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
           angle = 0;
         }
         
-        if (item->open) {
+        if (state->open) {
           angle += 0.5f;
         }
         
@@ -606,7 +577,7 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
 
 u32 ui_get_self_index(ui_Item *item) {
   u32 result = 0;
-  while (item->parent->children[result] != item) result++;
+  while (item->parent->children + result != item) result++;
   return result;
 }
 
@@ -629,12 +600,12 @@ ui_Item *ui_get_prev_focusable_item(ui_Item *item) {
       }
     }
     
-    ui_Item *sibling = cur->parent->children[self_index - 1];
+    ui_Item *sibling = cur->parent->children + self_index - 1;
     cur = sibling;
     
     if (!flag_is_set(cur->style.flags, ui_HIDDEN))  {
       if (cur->children && sb_count(cur->children)) {
-        cur = cur->children[sb_count(cur->children) - 1];
+        cur = cur->children + sb_count(cur->children) - 1;
       }
       
       if (flag_is_set(cur->style.flags, ui_FOCUSABLE)) {
@@ -665,12 +636,12 @@ ui_Item *ui_get_next_focusable_item(ui_Item *item) {
       }
     }
     
-    ui_Item *sibling = cur->parent->children[self_index + 1];
+    ui_Item *sibling = cur->parent->children + self_index + 1;
     cur = sibling;
     
     if (!flag_is_set(cur->style.flags, ui_HIDDEN))  {
       if (cur->children && sb_count(cur->children)) {
-        cur = cur->children[0];
+        cur = cur->children + 0;
       }
       
       if (flag_is_set(cur->style.flags, ui_FOCUSABLE)) {
@@ -695,7 +666,7 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   
   ui_Id next_hot = layout->hot;
   if (!v2_equal(layout->ignored_mouse_p, layout->input->mouse.p)) {
-    next_hot = invalid_ui_id();
+    next_hot = INVALID_UI_ID;
   }
   
   ui_Item *stack[128];
@@ -746,7 +717,7 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
         u32 i = sb_count(item->children);
         while (i > 0) {
           i--;
-          ui_Item *child = item->children[i];
+          ui_Item *child = item->children + i;
           stack[stack_count++] = child;
         }
       }
@@ -755,9 +726,10 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
         case Item_Type_DROPDOWN_MENU: {
           // NOTE(lvl5): close the menu if clicked outside of it
           ui_Item *menu_wrapper = item;
-          ui_Item *menu_button = menu_wrapper->children[0];
+          ui_Item *menu_button = menu_wrapper->children + 0;
+          ui_State *state = layout_get_state(layout, menu_button->id);
           
-          if (menu_button->open && layout->input->mouse.left.went_up) {
+          if (state->open && layout->input->mouse.left.went_up) {
             bool mouse_over_menu = false;
             
             ui_Item **descendents = ui_scratch_get_all_descendents(menu_wrapper);
@@ -771,7 +743,7 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
             }
             
             if (!mouse_over_menu) {
-              menu_button->open = false;
+              state->open = false;
             }
           }
         } break;
@@ -794,18 +766,17 @@ void ui_menu_bar_end(ui_Layout *layout) {
   ui_flex_end(layout);
 }
 
-void ui_dropdown_menu_begin(ui_Layout *layout, String label, Style style) 
-{
+void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style style) {
   ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
   Style toggle_style = default_button_style();
   toggle_style.bg_color = 0xFF333333;
   toggle_style.flags |= ui_FOCUSABLE;
   
-  
-  ui_Id id = { .ptr = (u32)(u64)label.data };
-  ui_Item *item = layout_push_item(layout, id, Item_Type_MENU_TOGGLE_BUTTON, 
-                                   toggle_style);
+  ui_Item *item = layout_get_item(layout, Item_Type_MENU_TOGGLE_BUTTON, 
+                                  toggle_style);
+  item->id = id;
   item->label = label;
+  ui_State *state = layout_get_state(layout, id);
   
   
   V2 size = ui_compute_text_size(layout, label, item->style);
@@ -819,7 +790,7 @@ void ui_dropdown_menu_begin(ui_Layout *layout, String label, Style style)
     .min_width = percent(100),
   };
   
-  if (!item->open) {
+  if (!state->open) {
     dropdown_box.flags |= ui_HIDDEN;
   }
   
