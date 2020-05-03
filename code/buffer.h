@@ -24,6 +24,7 @@ typedef struct Buffer {
   i32 preferred_col_pos;
   
   Editor *editor;
+  
   struct {
     volatile b32 locked;
     i32 generation;

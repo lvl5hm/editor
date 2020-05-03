@@ -378,7 +378,10 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
           i32 char_index = char_index_relative + added;
           char first = buffer->data[char_index] - font->first_codepoint;
           
-          u32 char_color = theme->colors[buffer_colors[char_index_relative]];
+          u32 char_color = 0xFFFFFFFF;
+          if (buffer_colors) {
+            char_color = theme->colors[buffer_colors[char_index_relative]];
+          }
           
           i8 advance = font_get_advance(font, buffer->data[char_index], buffer->data[char_index+1]);
           
@@ -438,11 +441,14 @@ void renderer_end_render(gl_Funcs gl, Renderer *r) {
             queue_rect(instances, rect2_min_size(v2(cursor_rect.max.x-thick, cursor_rect.min.y),
                                                  v2(thick, size.y)), state);
           }
+          
           if (first == '\n') {
             offset.x = buffer_rect.min.x;
-            offset.y -= font->line_spacing;
-            line_index++;
-            if (offset.y < -r->window_size.y*0.5f && cursor_rendered) {
+            if (!view->is_single_line) {
+              offset.y -= font->line_spacing;
+              line_index++;
+            }
+            if (line_index > lines_on_screen + scroll->y && cursor_rendered) {
               goto end;
             }
             continue;

@@ -60,13 +60,6 @@ typedef struct {
   Color_Theme theme;
 } Settings;
 
-typedef struct Buffer_View {
-  Buffer *buffer;
-  i32 visible_cursor;
-  i32 preferred_col_pos;
-  i32 visible_mark;
-} Buffer_View;
-
 typedef struct {
   union {
     Buffer_View buffer_view;

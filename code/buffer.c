@@ -213,10 +213,12 @@ void buffer_update_cache(Buffer *buffer) {
 void buffer_changed(Buffer *buffer) {
   begin_profiler_function();
   
-  buffer->editor->generation++;
-  buffer->cache.locked = true;
-  buffer_update_cache(buffer);
-  buffer->cache.locked = false;
+  if (buffer->editor) {
+    buffer->editor->generation++;
+    buffer->cache.locked = true;
+    buffer_update_cache(buffer);
+    buffer->cache.locked = false;
+  }
   
   end_profiler_function();
 }
@@ -246,6 +248,7 @@ void buffer_insert_string(Buffer *b, String str) {
     while (b->count + (i32)str.count > b->capacity) {
       b->capacity = b->capacity*2;
     }
+    
     // one extra \0 after the buffer for kerning
     b->data = alloc_array(char, b->capacity + 1);
     b->data[b->capacity] = '\0';
@@ -261,6 +264,7 @@ void buffer_insert_string(Buffer *b, String str) {
     for (i32 i = 0; i < second_count; i++) {
       b->data[gap_start+gap_count+i] = old_data[old_gap_start+old_gap_count+i];
     }
+    free_memory(old_data);
   }
   
   
@@ -281,8 +285,21 @@ void buffer_insert_string(Buffer *b, String str) {
   end_profiler_function();
 }
 
+Buffer buffer_make_empty() {
+  begin_profiler_function();
+  
+  Buffer b = {0};
+  b.capacity = 0;
+  
+  buffer_insert_string(&b, const_string("\0"));
+  set_cursor(&b, 0);
+  
+  end_profiler_function();
+  
+  return b;
+}
 
-Buffer *make_empty_buffer(Editor *editor, String path) {
+Buffer *editor_add_buffer(Editor *editor, String path) {
   begin_profiler_function();
   
   
@@ -292,22 +309,17 @@ Buffer *make_empty_buffer(Editor *editor, String path) {
   push_context(system_ctx);
   
   
-  Buffer b = {0};
-  b.capacity = 0;
+  Buffer b = buffer_make_empty();
   b.path = alloc_string(path.data, path.count);
   b.editor = editor;
-  sb_push(editor->buffers, b);
-  Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
-  
-  
-  bool not_scratch = get_context()->allocator == system_allocator;
-  assert(not_scratch);
   
   Mem_Size arena_size = megabytes(16);
-  arena_init(&buffer->cache.arena, alloc_array(byte, arena_size), arena_size);
+  arena_init(&b.cache.arena, alloc_array(byte, arena_size), arena_size);
   
-  buffer_insert_string(buffer, const_string("\0"));
-  set_cursor(buffer, 0);
+  buffer_changed(&b);
+  
+  sb_push(editor->buffers, b);
+  Buffer *buffer = editor->buffers + sb_count(editor->buffers) - 1;
   
   
   pop_context(system_ctx);
