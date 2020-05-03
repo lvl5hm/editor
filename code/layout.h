@@ -1,5 +1,8 @@
 #ifndef LAYOUT_H
 
+#include "lvl5_math.h"
+#include "buffer.h"
+
 #define ui_SIZE_STRETCH INFINITY
 #define ui_SIZE_AUTO 0
 #define ui_HORIZONTAL (1 << 0)
@@ -76,13 +79,12 @@ typedef enum {
   Item_Type_LABEL,
 } Item_Type;
 
-typedef struct {
-  u8 func;
-  u8 loop;
-  u8 call;
+typedef union {
+  void *ptr;
+  byte bytes[8];
 } ui_Id;
 
-#define INVALID_UI_ID (ui_Id){.func=0, .call = 0, .loop = 0}
+#define INVALID_UI_ID (ui_Id){NULL}
 
 typedef struct ui_Item ui_Item;
 typedef struct ui_Item {
@@ -106,11 +108,27 @@ typedef struct ui_Item {
 } ui_Item;
 
 
+
+
+typedef struct Buffer_View {
+  Buffer *buffer;
+  i32 visible_cursor;
+  i32 preferred_col_pos;
+  i32 visible_mark;
+  
+  bool is_single_line;
+} Buffer_View;
+
+
+
 #define LAYOUT_BUTTON_MAX 512
 
 typedef struct {
   bool open;
   bool clicked;
+  Buffer_View buffer_view;
+  Buffer buffer;
+  V2 scroll;
 } ui_State;
 
 typedef struct {
@@ -129,6 +147,7 @@ typedef struct {
   
   ui_Id hot;
   ui_Id active;
+  ui_Id interactive;
   
   V2 ignored_mouse_p;
 } ui_Layout;

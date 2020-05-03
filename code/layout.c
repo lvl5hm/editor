@@ -11,18 +11,15 @@ ui_Layout make_layout(Renderer *r, os_Input *input, Editor *editor) {
 }
 
 
-#define ui_id_loop_func(l, f) (ui_Id){.call = __COUNTER__ + 1, .loop = l, .func = f}
-#define ui_id_loop(l) ui_id_loop_func(l, 0)
-#define ui_id_func(f) ui_id_loop_func(0, f)
-#define ui_id() ui_id_loop_func(0, 0)
-
 bool ui_ids_equal(ui_Id a, ui_Id b) {
-  bool result = a.call == b.call && a.loop == b.loop && a.func == b.func;
+  bool result = a.ptr == b.ptr;
   return result;
 }
 
 u32 hash_ui_id(ui_Id id) {
-  u32 result = (id.call) ^ (id.loop << 7) ^ (id.func << 13);
+  u32 result = (id.bytes[0]) ^ (id.bytes[1] * 3) ^ (id.bytes[2] * 5) ^
+    (id.bytes[3] * 7) ^ (id.bytes[4] * 31) ^ (id.bytes[5] * 13) ^ (id.bytes[6] * 17)
+    ^ (id.bytes[7] * 23);
   return result;
 }
 
@@ -53,17 +50,27 @@ bool ui_id_valid(ui_Id id) {
   return result;
 }
 
-ui_State *layout_get_state(ui_Layout *layout, ui_Id id) {
+ui_State *layout_get_state_ex(ui_Layout *layout, ui_Id id, bool *exists) {
   ui_State *result = null;
+  
+  *exists = false;
   
   if (ui_id_valid(id)) {
     u32 index = get_ui_state_index(layout, id);
     result = layout->values + index;
+    *exists = layout->occupancy[index];
+    
     if (!layout->occupancy[index]) {
       layout->keys[index] = id;
       layout->occupancy[index] = true;
     }
   }
+  return result;
+}
+
+ui_State *layout_get_state(ui_Layout *layout, ui_Id id) {
+  bool ignored;
+  ui_State *result = layout_get_state_ex(layout, id, &ignored);
   return result;
 }
 
@@ -112,9 +119,10 @@ V2 get_reported_dims(ui_Item *item) {
   return result;
 }
 
-void ui_flex_begin_ex(ui_Layout *layout, Style style, Item_Type type) {
+ui_Item *ui_flex_begin_ex(ui_Layout *layout, Style style, Item_Type type) {
   ui_Item *item = layout_get_item(layout, type, style);
   layout->current_container = item;
+  return item;
 }
 void ui_flex_begin(ui_Layout *layout, Style style) {
   ui_flex_begin_ex(layout, style, Item_Type_FLEX);
@@ -202,14 +210,14 @@ void ui_label(ui_Layout *layout, String label, Style style) {
   }
 }
 
-bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
+bool ui_button(ui_Layout *layout, String str, Style style) {
   style.flags |= ui_FOCUSABLE;
   
   ui_Item *item = layout_get_item(layout, Item_Type_BUTTON, style);
-  item->id = id;
+  item->id = (ui_Id){str.data};
   item->label = str;
   
-  ui_State *state = layout_get_state(layout, id);
+  ui_State *state = layout_get_state(layout, item->id);
   bool result = state->clicked;
   
   V2 size = ui_compute_text_size(layout, str, item->style);
@@ -223,14 +231,16 @@ bool ui_button(ui_Layout *layout, ui_Id id, String str, Style style) {
   return result;
 }
 
-void ui_buffer(ui_Layout *layout, Buffer_View *buffer_view, V2 *scroll, Style style) {
+ui_Item *ui_buffer(ui_Layout *layout, Buffer_View *buffer_view, V2 *scroll, Style style) {
   ui_Item *item = layout_get_item(layout, Item_Type_BUFFER, style);
   item->buffer_view = buffer_view;
   item->scroll = scroll;
+  return item;
 }
 
-void ui_panel(ui_Layout *layout, Panel *panel, Style style) {
-  ui_flex_begin(layout, style);
+bool ui_panel(ui_Layout *layout, Panel *panel, Style style) {
+  ui_Item *wrapper = ui_flex_begin_ex(layout, style, Item_Type_PANEL);
+  wrapper->id = (ui_Id){panel};
   
   assert(panel->type == Panel_Type_BUFFER);
   
@@ -241,20 +251,53 @@ void ui_panel(ui_Layout *layout, Panel *panel, Style style) {
   
   ui_label(layout, panel->buffer_view.buffer->path, button_style);
   
-  Style buffer_style = (Style){
-    .width = ui_SIZE_STRETCH,
-    .height = ui_SIZE_STRETCH,
-    .bg_color = layout->editor->settings.theme.colors[Syntax_BACKGROUND],
-    .border_width = 2,
-    .active_border_color = 0xFFCCCCCC,
-    .border_color = 0xFF444444,
-  };
+  Style buffer_style = style;
+  buffer_style.width = px(ui_SIZE_STRETCH);
+  buffer_style.height = px(ui_SIZE_STRETCH);
+  buffer_style.bg_color = layout->editor->settings.theme.colors[Syntax_BACKGROUND];
+  buffer_style.border_width = 2;
+  
   ui_buffer(layout, &panel->buffer_view, &panel->scroll, buffer_style);
   
   ui_flex_end(layout);
   
   assert(style.width.value != ui_SIZE_AUTO);
   assert(style.height.value != ui_SIZE_AUTO);
+  
+  ui_State *state = layout_get_state(layout, wrapper->id);
+  
+  if (ui_ids_equal(layout->interactive, wrapper->id)) {
+    os_Input *input = layout->input;
+    if (!input->ctrl && !input->alt) {
+      if (input->char_count > 0) {
+        String str = make_string(input->chars, input->char_count);
+        buffer_input_string(panel->buffer_view.buffer, str);
+      }
+    }
+  }
+  
+  
+  return state->clicked;
+}
+
+void ui_input_text(ui_Layout *layout, String str, Style style) {
+  ui_Id id = (ui_Id){str.data};
+  assert(ui_id_valid(id));
+  
+  bool exists;
+  ui_State *state = layout_get_state_ex(layout, id, &exists);
+  if (!exists) {
+    state->buffer = buffer_make_empty();
+    state->buffer_view = (Buffer_View){
+      .buffer = &state->buffer,
+      .is_single_line = true,
+    };
+    buffer_insert_string(&state->buffer, const_string("test"));
+  }
+  state->scroll = v2_zero();
+  ui_Item *item = ui_buffer(layout, &state->buffer_view, &state->scroll, style);
+  item->id = id;
+  item->buffer_view = &state->buffer_view;
 }
 
 Rect2 ui_get_rect(ui_Layout *layout, ui_Item *item) {
@@ -438,10 +481,27 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
     draw_rect_outline(layout->renderer, rect, border_width, item->style.border_color);
   }
   
+  
+  if (ui_id_valid(item->id) && ui_mouse_in_rect(layout, rect)) {
+    ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
+    if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
+      *next_hot = item->id;
+    }
+  }
+  
+  
   switch (item->type) {
     case Item_Type_LABEL: {
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
       draw_string(layout->renderer, item->label, p, item->style.text_color);
+    } break;
+    
+    case Item_Type_PANEL: {
+      ui_State *state = layout_get_state(layout, item->id);
+      state->clicked = ui_is_clicked(layout, item->id);
+      if (state->clicked) {
+        layout->interactive = item->id;
+      }
     } break;
     
     case Item_Type_BUFFER: {
@@ -460,15 +520,7 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
     
     case Item_Type_BUTTON: {
       ui_State *state = layout_get_state(layout, item->id);
-      
       state->clicked = ui_is_clicked(layout, item->id);
-      
-      if (ui_mouse_in_rect(layout, rect)) {
-        ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
-        if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
-          *next_hot = item->id;
-        }
-      }
       
       V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
       draw_string(layout->renderer, item->label, p, item->style.text_color);
@@ -487,14 +539,6 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
       
       if (ui_is_clicked(layout, item->id)) {
         state->open = !state->open;
-      }
-      
-      // NOTE(lvl5): open the menu if clicked
-      if (ui_mouse_in_rect(layout, rect)) {
-        ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
-        if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
-          *next_hot = item->id;
-        }
       }
       
       // NOTE(lvl5): if menu is in a menu_bar, close the menu
@@ -766,7 +810,7 @@ void ui_menu_bar_end(ui_Layout *layout) {
   ui_flex_end(layout);
 }
 
-void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style style) {
+void ui_dropdown_menu_begin(ui_Layout *layout, String label, Style style) {
   ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
   Style toggle_style = default_button_style();
   toggle_style.bg_color = 0xFF333333;
@@ -774,9 +818,9 @@ void ui_dropdown_menu_begin(ui_Layout *layout, ui_Id id, String label, Style sty
   
   ui_Item *item = layout_get_item(layout, Item_Type_MENU_TOGGLE_BUTTON, 
                                   toggle_style);
-  item->id = id;
+  item->id = (ui_Id){label.data};
   item->label = label;
-  ui_State *state = layout_get_state(layout, id);
+  ui_State *state = layout_get_state(layout, item->id);
   
   
   V2 size = ui_compute_text_size(layout, label, item->style);
