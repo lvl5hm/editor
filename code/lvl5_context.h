@@ -67,9 +67,6 @@ ALLOCATOR(arena_allocator) {
       arena->size = 0;
     } break;
     
-    case Alloc_Op_FREE: {
-      
-    } break;
     
     invalid_default_case;
   }

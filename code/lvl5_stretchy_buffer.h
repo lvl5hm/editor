@@ -55,11 +55,7 @@ void *__grow(void *arr_ptr_, Mem_Size item_size) {
   i32 new_capacity = header->capacity*LVL5_STRETCHY_BUFFER_GROW_FACTOR;
   u32 header_size = sizeof(sb_Header);
   byte *result = header->allocator(Alloc_Op_ALLOC, new_capacity*item_size + header_size, header->allocator_data, null, 0, 16) + header_size;
-  
-  Mem_Size old_size = header->capacity*item_size;
-  copy_memory_slow(result, arr, old_size);
-  
-  header->allocator(Alloc_Op_FREE, 0, header->allocator_data, (byte *)arr - header_size, null, 16);
+  copy_memory_slow(result, arr, header->capacity*item_size);
   
   sb_Header *new_header = __get_header(result);
   *new_header = *header;

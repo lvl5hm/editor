@@ -94,6 +94,7 @@ typedef union {
   struct {
     u32 parent_ptr;
     u16 index;
+    u16 type;
   };
   u64 full;
 } ui_Id;
@@ -107,6 +108,7 @@ typedef struct ui_Item {
   Item_Type type;
   
   Style style;
+  ui_Item **children;
   ui_Item *parent;
   
   ui_Id id;
@@ -126,7 +128,6 @@ typedef struct ui_Item {
   
   // temp stuff
   u32 current_child_index;
-  u32 self_index;
 } ui_Item;
 
 

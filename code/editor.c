@@ -482,16 +482,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
         draw_command_button(l, const_string("new"), Command_OPEN_FILE_DIALOG);
         draw_command_button(l, const_string("open"), Command_OPEN_FILE_DIALOG);
         ui_button(l, const_string("save"), button_box);
-        
-        static bool foo = false;
-        
-        if (ui_button(l, const_string("exit"), button_box)) {
-          foo = true;
-        }
-        
-        if (foo) {
-          ui_button(l, const_string("FFOFOOFO"), button_box);
-        }
+        ui_button(l, const_string("exit"), button_box);
         
         ui_dropdown_menu_begin(l, const_string("settings"), (Style){
                                .flags = ui_HORIZONTAL,
@@ -545,6 +536,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
       ui_flex_end(l);
     }
     
+#if 1
     ui_flex_begin(l, (Style){ 
                   .flags = ui_HORIZONTAL,
                   .width = px(ui_SIZE_STRETCH),
@@ -562,6 +554,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
                .height = px(ui_SIZE_STRETCH),
                });
     } ui_flex_end(l);
+#endif
   } ui_flex_end(l);
   
   traverse_layout(l, l->current_container);
