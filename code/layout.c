@@ -25,15 +25,14 @@ bool ui_id_valid(ui_Id id) {
 }
 
 u32 hash_ui_id(ui_Id id) {
-  u32 result = (id.parent_ptr) ^ (id.index << 7) ^ (id.type << 13);
+  u32 result = (id.parent_ptr) ^ (id.index << 7);
   return result;
 }
 
-ui_Id ui_make_child_id(ui_Item *parent, u32 child_index, Item_Type type) {
+ui_Id ui_make_child_id(ui_Item *parent, u32 child_index) {
   ui_Id result = {
     .parent_ptr = (u32)(u64)parent,
     .index = (u16)child_index,
-    .type = (u16)type,
   };
   return result;
 }
@@ -68,6 +67,7 @@ u32 ui_get_item_index(ui_Layout *layout, ui_Id id) {
       if (first_tombstone_index == -1) {
         first_tombstone_index = hash;
       }
+      hash++;
     } else if (occupancy == UI_UNOCCUPIED || ui_ids_equal(key, id)) {
       if (first_tombstone_index != -1) {
         hash = first_tombstone_index;
@@ -106,13 +106,41 @@ void ui_init_item(ui_Layout *layout, ui_Item *result, Style style) {
 }
 
 
+ui_Item **ui_get_children(ui_Layout *layout, ui_Item *item) {
+  ui_Item **result = sb_new(ui_Item *, 8);
+  for (u32 i = 0; i < array_count(layout->values); i++) {
+    ui_Item *other = layout->values + i;
+    if (other->parent == item) {
+      sb_push(result, other);
+    }
+  }
+  
+  i32 count = sb_count(result);
+  if (sb_count(result) > 1) {
+    i32 i = 1;
+    while (i < count) {
+      ui_Item *x = result[i];
+      i32 j = i - 1;
+      while (j >= 0 && result[j]->self_index > x->self_index) {
+        result[j+1] = result[j];
+        j--;
+      }
+      result[j+1] = x;
+      i++;
+    }
+  }
+  
+  return result;
+}
+
+
 ui_Item *layout_push_item(ui_Layout *layout, ui_Id id, Item_Type type, Style style) {
   if (!ui_id_valid(id)) {
     ui_Item *parent = layout->current_container;
     u32 index = layout->current_container
       ? layout->current_container->current_child_index
       : 0;
-    id = ui_make_child_id(parent, index, type);
+    id = ui_make_child_id(parent, index);
   }
   
   u32 item_index = ui_get_item_index(layout, id);
@@ -124,21 +152,14 @@ ui_Item *layout_push_item(ui_Layout *layout, ui_Id id, Item_Type type, Style sty
   result->id = id;
   result->type = type;
   result->rendered = false;
+  result->used = true;
+  result->self_index = layout->current_container
+    ? layout->current_container->current_child_index
+    : 0;
   
   if (layout->occupancy[item_index] != UI_OCCUPIED) {
     layout->occupancy[item_index] = UI_OCCUPIED;
     layout->keys[item_index] = id;
-    
-    Context ctx = *get_context();
-    ctx.allocator = system_allocator;
-    push_context(ctx);
-    result->children = sb_new(ui_Item *, 8);
-    pop_context(ctx);
-    
-    if (layout->current_container) {
-      u32 index = sb_count(layout->current_container->children);
-      sb_push(layout->current_container->children, result);
-    }
   }
   
   
@@ -170,15 +191,16 @@ void ui_flex_begin(ui_Layout *layout, Style style) {
   ui_flex_begin_ex(layout, style, Item_Type_FLEX);
 }
 
-V2 ui_flex_calc_auto_dim(ui_Item *item, i32 main_axis) {
+V2 ui_flex_calc_auto_dim(ui_Layout *layout, ui_Item *item, i32 main_axis) {
   i32 other_axis = !main_axis;
+  ui_Item **children = ui_get_children(layout, item);
   
   V2 result = v2_zero();
   for (u32 child_index = 0;
-       child_index < sb_count(item->children);
+       child_index < sb_count(children);
        child_index++) 
   {
-    ui_Item *child = item->children[child_index];
+    ui_Item *child = children[child_index];
     V2 child_dims = get_reported_dims(child);
     
     result.e[main_axis] += child_dims.e[main_axis];
@@ -200,7 +222,7 @@ void ui_flex_end(ui_Layout *layout) {
   bool is_horizontal = flag_is_set(item->style.flags, ui_HORIZONTAL);
   i32 main_axis = is_horizontal ? AXIS_X : AXIS_Y;
   
-  V2 size = ui_flex_calc_auto_dim(item, main_axis);
+  V2 size = ui_flex_calc_auto_dim(layout, item, main_axis);
   
   if (item->style.width.value == ui_SIZE_AUTO) {
     item->size.x = size.x;
@@ -332,7 +354,7 @@ bool ui_is_clicked(ui_Layout *layout, ui_Id id) {
   return result;
 }
 
-ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
+ui_Item **ui_scratch_get_all_descendents(ui_Layout *layout, ui_Item *item) {
   push_scratch_context();
   ui_Item **result = sb_new(ui_Item *, 64);
   pop_context();
@@ -343,10 +365,11 @@ ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
   
   while (stack_count) {
     ui_Item *cur = stack[--stack_count];
+    ui_Item **children = ui_get_children(layout, cur);
     
     if (!flag_is_set(cur->style.flags, ui_HIDDEN)) {
-      for (u32 i = 0; i < sb_count(cur->children); i++) {
-        ui_Item *child = cur->children[i];
+      for (u32 i = 0; i < sb_count(children); i++) {
+        ui_Item *child = children[i];
         stack[stack_count++] = child;
         assert(stack_count <= array_count(stack));
       }
@@ -357,17 +380,19 @@ ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
   return result;
 }
 
-void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
+void ui_flex_set_stretchy_children(ui_Layout *layout, ui_Item *item, i32 main_axis) {
   i32 other_axis = !main_axis;
   
   f32 fixed_size = 0;
   i32 stretch_count = 0;
   
+  ui_Item **children = ui_get_children(layout, item);
+  
   for (u32 child_index = 0;
-       child_index < sb_count(item->children);
+       child_index < sb_count(children);
        child_index++) 
   {
-    ui_Item *child = item->children[child_index];
+    ui_Item *child = children[child_index];
     if (flag_is_set(child->style.flags, ui_HIDDEN)) {
       continue;
     }
@@ -409,10 +434,10 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
   V2 p = item->p;
   
   for (u32 child_index = 0;
-       child_index < sb_count(item->children);
+       child_index < sb_count(children);
        child_index++) 
   {
-    ui_Item *child = item->children[child_index];
+    ui_Item *child = children[child_index];
     
     if (child->style.dims[main_axis].value == ui_SIZE_STRETCH) {
       child->size.e[main_axis] = size_per_stretch;
@@ -536,12 +561,14 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
       if (!item->open && menu_bar && 
           ui_ids_equal(layout->hot, item->id)) 
       {
+        ui_Item **children = ui_get_children(layout, menu_bar);
+        
         for (u32 menu_index = 0; 
-             menu_index < sb_count(menu_bar->children);
+             menu_index < sb_count(children);
              menu_index++) 
         {
-          ui_Item *menu_wrapper = menu_bar->children[menu_index];
-          ui_Item *menu = menu_wrapper->children[0];
+          ui_Item *menu_wrapper = children[menu_index];
+          ui_Item *menu = ui_get_children(layout, menu_wrapper)[0];
           Rect2 menu_rect = ui_get_rect(layout, menu);
           
           ui_Item *other = ui_get_item_by_id(layout, menu->id);
@@ -553,8 +580,8 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
       }
       
       // NOTE(lvl5): close the menu if a button is clicked
-      ui_Item *dropdown = item->parent->children[1];
-      ui_Item **descendents = ui_scratch_get_all_descendents(dropdown);
+      ui_Item *dropdown = ui_get_children(layout, item->parent)[1];
+      ui_Item **descendents = ui_scratch_get_all_descendents(layout, dropdown);
       for (u32 i = 0; i < sb_count(descendents); i++) {
         ui_Item *child = descendents[i];
         if (child->type == Item_Type_BUTTON) {
@@ -604,37 +631,41 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
   }
 }
 
-u32 ui_get_self_index(ui_Item *item) {
+u32 ui_get_self_index(ui_Layout *layout, ui_Item *item) {
   u32 result = 0;
-  while (item->parent->children[result] != item) result++;
+  ui_Item **children = ui_get_children(layout, item->parent);
+  while (children[result] != item) result++;
   return result;
 }
 
 
-ui_Item *ui_get_prev_focusable_item(ui_Item *item) {
+ui_Item *ui_get_prev_focusable_item(ui_Layout *layout, ui_Item *item) {
   ui_Item *result = item;
   ui_Item *cur = item;
   
   while (true) {
     if (!cur->parent) goto end;
-    i32 self_index = ui_get_self_index(cur);
+    ui_Item **children = ui_get_children(layout, cur->parent);
+    
+    i32 self_index = ui_get_self_index(layout, cur);
     
     while (self_index == 0) {
       if (flag_is_set(cur->parent->style.flags, ui_FOCUS_TRAP)) {
-        self_index = sb_count(cur->parent->children);
+        self_index = sb_count(children);
       } else {
         cur = cur->parent;
         if (!cur->parent) goto end;
-        self_index = ui_get_self_index(cur);
+        self_index = ui_get_self_index(layout, cur);
       }
     }
     
-    ui_Item *sibling = cur->parent->children[self_index - 1];
+    ui_Item *sibling = children[self_index - 1];
     cur = sibling;
     
     if (!flag_is_set(cur->style.flags, ui_HIDDEN))  {
-      if (cur->children && sb_count(cur->children)) {
-        cur = cur->children[sb_count(cur->children) - 1];
+      ui_Item **children = ui_get_children(layout, cur);
+      if (children && sb_count(children)) {
+        cur = children[sb_count(children) - 1];
       }
       
       if (flag_is_set(cur->style.flags, ui_FOCUSABLE)) {
@@ -647,30 +678,32 @@ ui_Item *ui_get_prev_focusable_item(ui_Item *item) {
   return result;
 }
 
-ui_Item *ui_get_next_focusable_item(ui_Item *item) {
+ui_Item *ui_get_next_focusable_item(ui_Layout *layout, ui_Item *item) {
   ui_Item *result = item;
   ui_Item *cur = item;
   
   while (true) {
     if (!cur->parent) goto end;
-    i32 self_index = ui_get_self_index(cur);
+    ui_Item **children = ui_get_children(layout, cur->parent);
+    i32 self_index = ui_get_self_index(layout, cur);
     
-    while (self_index == (i32)sb_count(cur->parent->children) - 1) {
+    while (self_index == (i32)sb_count(children) - 1) {
       if (flag_is_set(cur->parent->style.flags, ui_FOCUS_TRAP)) {
         self_index = -1;
       } else {
         cur = cur->parent;
         if (!cur->parent) goto end;
-        self_index = ui_get_self_index(cur);
+        self_index = ui_get_self_index(layout, cur);
       }
     }
     
-    ui_Item *sibling = cur->parent->children[self_index + 1];
+    ui_Item *sibling = children[self_index + 1];
     cur = sibling;
     
     if (!flag_is_set(cur->style.flags, ui_HIDDEN))  {
-      if (cur->children && sb_count(cur->children)) {
-        cur = cur->children[0];
+      ui_Item **children = ui_get_children(layout, cur);
+      if (children && sb_count(children)) {
+        cur = children[0];
       }
       
       if (flag_is_set(cur->style.flags, ui_FOCUSABLE)) {
@@ -693,7 +726,24 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   Rect2 window_rect = rect2_min_size(v2_mul(renderer->window_size, -0.5f),
                                      renderer->window_size);
   
+  
   ui_Id next_hot = layout->hot;
+  
+  
+  {
+    ui_Item *item = ui_get_item_by_id(layout, layout->hot);
+    if (item) {
+      if (layout->input->keys[os_Keycode_ARROW_DOWN].pressed) {
+        layout->ignored_mouse_p = layout->input->mouse.p;
+        next_hot = ui_get_next_focusable_item(layout, item)->id;
+      } else if (layout->input->keys[os_Keycode_ARROW_UP].pressed) {
+        layout->ignored_mouse_p = layout->input->mouse.p;
+        next_hot = ui_get_prev_focusable_item(layout, item)->id;
+      }
+    }
+  }
+  
+  
   if (!v2_equal(layout->ignored_mouse_p, layout->input->mouse.p)) {
     next_hot = invalid_ui_id();
   }
@@ -702,7 +752,6 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   ui_Item *post_stack[128];
   i32 stack_count = 0;
   stack[stack_count++] = root;
-  
   
   while (stack_count) {
     ui_Item *item = stack[--stack_count];
@@ -720,20 +769,8 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
       
       ui_draw_item(layout, item, &next_hot);
       
-      if (ui_ids_equal(layout->hot, item->id) &&
-          ui_id_valid(item->id)) 
-      {
-        if (layout->input->keys[os_Keycode_ARROW_DOWN].pressed) {
-          layout->ignored_mouse_p = layout->input->mouse.p;
-          next_hot = ui_get_next_focusable_item(item)->id;
-        } else if (layout->input->keys[os_Keycode_ARROW_UP].pressed) {
-          layout->ignored_mouse_p = layout->input->mouse.p;
-          next_hot = ui_get_prev_focusable_item(item)->id;
-        }
-      }
-      
-      
-      if (item->children && sb_count(item->children) > 0) {
+      ui_Item **children = ui_get_children(layout, item);
+      if (children && sb_count(children) > 0) {
         // return to the item after visiting all descendents
         item->rendered = true;
         stack[stack_count++] = item;
@@ -741,12 +778,12 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
         bool is_horizontal = flag_is_set(item->style.flags, ui_HORIZONTAL);
         i32 main_axis = is_horizontal ? AXIS_X : AXIS_Y;
         
-        ui_flex_set_stretchy_children(item, main_axis);
+        ui_flex_set_stretchy_children(layout, item, main_axis);
         
-        u32 i = sb_count(item->children);
+        u32 i = sb_count(children);
         while (i > 0) {
           i--;
-          ui_Item *child = item->children[i];
+          ui_Item *child = children[i];
           stack[stack_count++] = child;
         }
       }
@@ -755,12 +792,12 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
         case Item_Type_DROPDOWN_MENU: {
           // NOTE(lvl5): close the menu if clicked outside of it
           ui_Item *menu_wrapper = item;
-          ui_Item *menu_button = menu_wrapper->children[0];
+          ui_Item *menu_button = ui_get_children(layout, menu_wrapper)[0];
           
           if (menu_button->open && layout->input->mouse.left.went_up) {
             bool mouse_over_menu = false;
             
-            ui_Item **descendents = ui_scratch_get_all_descendents(menu_wrapper);
+            ui_Item **descendents = ui_scratch_get_all_descendents(layout, menu_wrapper);
             for (u32 i = 0; i < sb_count(descendents); i++) {
               ui_Item *child = descendents[i];
               Rect2 child_rect = ui_get_rect(layout, child);
@@ -783,6 +820,19 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   }
   
   layout->hot = next_hot;
+  
+  
+#if 1
+  for (u32 i = 0; i < array_count(layout->keys); i++) {
+    ui_Item *item = layout->values + i;
+    if (layout->occupancy[i] == UI_OCCUPIED &&
+        !item->used) 
+    {
+      layout->occupancy[i] = UI_TOMBSTONE;
+    } 
+    item->used = false;
+  }
+#endif
 }
 
 void ui_menu_bar_begin(ui_Layout *layout, Style style) {
