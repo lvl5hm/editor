@@ -443,6 +443,13 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   l->current_container = null;
   l->p = v2(-ws.x*0.5f, ws.y*0.5f);
   
+  if (v2_equal(l->ignored_mouse_p, l->input->mouse.p)) {
+    l->next_hot = l->hot;
+  } else {
+    l->next_hot = INVALID_UI_ID;
+  }
+  
+  
   ui_flex_begin(l, (Style){ 
                 .flags = ui_ALIGN_CENTER,
                 .width = px(ws.x),

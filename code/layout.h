@@ -12,7 +12,7 @@
 #define ui_ALIGN_CENTER (1 << 4)
 #define ui_FOCUSABLE (1 << 5)
 #define ui_FOCUS_TRAP (1 << 6)
-
+#define ui_TOGGLE (1 << 7)
 
 typedef enum {
   Unit_PIXELS,
@@ -74,7 +74,6 @@ typedef enum {
   Item_Type_PANEL,
   Item_Type_BUFFER,
   Item_Type_DROPDOWN_MENU,
-  Item_Type_MENU_TOGGLE_BUTTON,
   Item_Type_MENU_BAR,
   Item_Type_LABEL,
 } Item_Type;
@@ -108,6 +107,13 @@ typedef struct ui_Item {
 } ui_Item;
 
 
+typedef enum {
+  ui_Layout_Mode_INTERACT,
+  ui_Layout_Mode_CALC_AUTOS,
+  ui_Layout_Mode_DRAW,
+  ui_Layout_Mode_CHILDREN_FINISHED,
+} ui_Layout_Mode;
+
 
 
 typedef struct Buffer_View {
@@ -123,12 +129,13 @@ typedef struct Buffer_View {
 
 #define LAYOUT_BUTTON_MAX 512
 
-typedef struct {
+typedef union {
   bool open;
-  bool clicked;
-  Buffer_View buffer_view;
-  Buffer buffer;
-  V2 scroll;
+  struct {
+    Buffer_View buffer_view;
+    Buffer buffer;
+    V2 scroll;
+  } panel;
 } ui_State;
 
 typedef struct {
@@ -148,6 +155,9 @@ typedef struct {
   ui_Id hot;
   ui_Id active;
   ui_Id interactive;
+  
+  ui_Id next_hot;
+  ui_Id next_active;
   
   V2 ignored_mouse_p;
 } ui_Layout;

@@ -197,39 +197,96 @@ V2 ui_compute_text_size(ui_Layout *layout, String str, Style style) {
   return result;
 }
 
-void ui_label(ui_Layout *layout, String label, Style style) {
-  ui_Item *item = layout_get_item(layout, Item_Type_LABEL, style);
-  item->label = label;
+
+bool ui_is_clicked(ui_Layout *layout, ui_Id id) {
+  bool result = false;
   
-  V2 size = ui_compute_text_size(layout, label, item->style);
-  if (style.width.value == ui_SIZE_AUTO) {
-    item->size.x = size.x;
+  os_Button left = layout->input->mouse.left;
+  if (ui_ids_equal(layout->active, id)) {
+    if (left.went_up) {
+      if (ui_ids_equal(layout->hot, id)) {
+        result = true;
+      }
+      layout->next_active = INVALID_UI_ID;
+    }
+  } else if (ui_ids_equal(layout->hot, id)) {
+    if (left.went_down) {
+      layout->next_active = id;
+    }
   }
-  if (style.height.value == ui_SIZE_AUTO) {
-    item->size.y = size.y;
+  return result;
+}
+
+
+
+Rect2 ui_get_rect(ui_Layout *layout, ui_Item *item) {
+  V2 p = v2_add(item->p, layout->p);
+  p.y -= item->size.y;
+  Rect2 rect = rect2_min_size(p, item->size);
+  return rect;
+}
+
+
+void ui_widget_label(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
+  switch (mode) {
+    case ui_Layout_Mode_CALC_AUTOS: {
+      V2 size = ui_compute_text_size(layout, item->label, item->style);
+      if (item->style.width.value == ui_SIZE_AUTO) {
+        item->size.x = size.x;
+      }
+      if (item->style.height.value == ui_SIZE_AUTO) {
+        item->size.y = size.y;
+      }
+    } break;
+    
+    case ui_Layout_Mode_DRAW: {
+      Rect2 rect = ui_get_rect(layout, item);
+      
+      V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
+      draw_string(layout->renderer, item->label, p, item->style.text_color);
+    } break;
   }
 }
 
-bool ui_button(ui_Layout *layout, String str, Style style) {
-  style.flags |= ui_FOCUSABLE;
-  
-  ui_Item *item = layout_get_item(layout, Item_Type_BUTTON, style);
-  item->id = (ui_Id){str.data};
-  item->label = str;
-  
-  ui_State *state = layout_get_state(layout, item->id);
-  bool result = state->clicked;
-  
-  V2 size = ui_compute_text_size(layout, str, item->style);
-  if (style.width.value == ui_SIZE_AUTO) {
-    item->size.x = size.x;
+bool ui_widget_button(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
+  switch (mode) {
+    case ui_Layout_Mode_INTERACT: {
+      item->style.flags |= ui_FOCUSABLE;
+      ui_Id id = (ui_Id){item->label.data};
+      item->id = id;
+      
+      bool result = ui_is_clicked(layout, id);
+      return result;
+    } break;
+    
+    case ui_Layout_Mode_CALC_AUTOS: {
+      V2 size = ui_compute_text_size(layout, item->label, item->style);
+      if (item->style.width.value == ui_SIZE_AUTO) {
+        item->size.x = size.x;
+      }
+      if (item->style.height.value == ui_SIZE_AUTO) {
+        item->size.y = size.y;
+      }
+    } break;
+    
+    case ui_Layout_Mode_DRAW: {
+      Rect2 rect = ui_get_rect(layout, item);
+      
+      V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
+      draw_string(layout->renderer, item->label, p, item->style.text_color);
+    } break;
   }
-  if (style.height.value == ui_SIZE_AUTO) {
-    item->size.y = size.y;
-  }
   
-  return result;
+  return false;
 }
+
+
+void ui_label(ui_Layout *layout, String label, Style style) {
+  ui_Item *item = layout_get_item(layout, Item_Type_LABEL, style);
+  item->label = label;
+  ui_widget_label(layout, ui_Layout_Mode_CALC_AUTOS, item);
+}
+
 
 ui_Item *ui_buffer(ui_Layout *layout, Buffer_View *buffer_view, V2 *scroll, Style style) {
   ui_Item *item = layout_get_item(layout, Item_Type_BUFFER, style);
@@ -238,9 +295,20 @@ ui_Item *ui_buffer(ui_Layout *layout, Buffer_View *buffer_view, V2 *scroll, Styl
   return item;
 }
 
+bool ui_button(ui_Layout *layout, String label, Style style) {
+  ui_Item *item = layout_get_item(layout, Item_Type_BUTTON, style);
+  item->label = label;
+  
+  bool result = ui_widget_button(layout, ui_Layout_Mode_INTERACT, item);
+  ui_widget_button(layout, ui_Layout_Mode_CALC_AUTOS, item);
+  return result;
+}
+
 bool ui_panel(ui_Layout *layout, Panel *panel, Style style) {
-  ui_Item *wrapper = ui_flex_begin_ex(layout, style, Item_Type_PANEL);
-  wrapper->id = (ui_Id){panel};
+  ui_Id id = (ui_Id){panel};
+  
+  ui_Item *item = ui_flex_begin_ex(layout, style, Item_Type_PANEL);
+  item->id = id;
   
   assert(panel->type == Panel_Type_BUFFER);
   
@@ -264,9 +332,7 @@ bool ui_panel(ui_Layout *layout, Panel *panel, Style style) {
   assert(style.width.value != ui_SIZE_AUTO);
   assert(style.height.value != ui_SIZE_AUTO);
   
-  ui_State *state = layout_get_state(layout, wrapper->id);
-  
-  if (ui_ids_equal(layout->interactive, wrapper->id)) {
+  if (ui_ids_equal(layout->interactive, id)) {
     os_Input *input = layout->input;
     if (!input->ctrl && !input->alt) {
       if (input->char_count > 0) {
@@ -276,55 +342,13 @@ bool ui_panel(ui_Layout *layout, Panel *panel, Style style) {
     }
   }
   
-  
-  return state->clicked;
-}
-
-void ui_input_text(ui_Layout *layout, String str, Style style) {
-  ui_Id id = (ui_Id){str.data};
-  assert(ui_id_valid(id));
-  
-  bool exists;
-  ui_State *state = layout_get_state_ex(layout, id, &exists);
-  if (!exists) {
-    state->buffer = buffer_make_empty();
-    state->buffer_view = (Buffer_View){
-      .buffer = &state->buffer,
-      .is_single_line = true,
-    };
-    buffer_insert_string(&state->buffer, const_string("test"));
-  }
-  state->scroll = v2_zero();
-  ui_Item *item = ui_buffer(layout, &state->buffer_view, &state->scroll, style);
-  item->id = id;
-  item->buffer_view = &state->buffer_view;
-}
-
-Rect2 ui_get_rect(ui_Layout *layout, ui_Item *item) {
-  V2 p = v2_add(item->p, layout->p);
-  p.y -= item->size.y;
-  Rect2 rect = rect2_min_size(p, item->size);
-  return rect;
-}
-
-bool ui_is_clicked(ui_Layout *layout, ui_Id id) {
-  bool result = false;
-  
-  os_Button left = layout->input->mouse.left;
-  if (ui_ids_equal(layout->active, id)) {
-    if (left.went_up) {
-      if (ui_ids_equal(layout->hot, id)) {
-        result = true;
-      }
-      layout->active = INVALID_UI_ID;
-    }
-  } else if (ui_ids_equal(layout->hot, id)) {
-    if (left.went_down) {
-      layout->active = id;
-    }
+  bool result = ui_is_clicked(layout, id);
+  if (result) {
+    layout->interactive = id;
   }
   return result;
 }
+
 
 ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
   push_scratch_context();
@@ -349,6 +373,132 @@ ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
     }
   }
   return result;
+}
+
+
+void ui_widget_dropdown_menu(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
+  switch (mode) {
+    case ui_Layout_Mode_CALC_AUTOS: {
+      Rect2 rect = ui_get_rect(layout, item->children + 0);
+      
+      ui_State *state = layout_get_state(layout, item->id);
+      
+      // NOTE(lvl5): close the menu if a button is clicked
+      ui_Item *dropdown = item->children + 1;
+      ui_Item **descendents = ui_scratch_get_all_descendents(dropdown);
+      for (u32 i = 0; i < sb_count(descendents); i++) {
+        ui_Item *child = descendents[i];
+        if (child->type == Item_Type_BUTTON) {
+          if (!flag_is_set(child->style.flags, ui_TOGGLE) && ui_is_clicked(layout, child->id)) 
+          {
+            state->open = false;
+            break;
+          }
+        }
+      }
+      
+      // NOTE(lvl5): close the menu if clicked outside of it
+      bool clicked_outside = true;
+      if (layout->input->mouse.left.went_down) {
+        for (u32 i = 0; i < sb_count(descendents); i++) {
+          ui_Item *child = descendents[i];
+          if (ui_ids_equal(child->id, layout->hot) && ui_id_valid(layout->hot))
+          {
+            clicked_outside = false;
+            break;
+          }
+        }
+        if (clicked_outside) {
+          state->open = false;
+        }
+      }
+    } break;
+    
+    case ui_Layout_Mode_DRAW: {
+#if 0      
+      V2 rect_size = rect2_get_size(rect);
+      V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
+      // NOTE(lvl5): draw the arrow
+      {
+        V2 arrow_size = v2(6, 9);
+        V2 arrow_p = v2(rect.max.x - arrow_size.x*0.5f - item->style.padding_right,
+                        rect.min.y + rect_size.y*0.4f);
+        
+        
+        f32 angle = -0.25f;
+        if (item->parent->style.flags & ui_HORIZONTAL) {
+          angle = 0;
+        }
+        
+        if (state->open) {
+          angle += 0.5f;
+        }
+        
+        render_save(layout->renderer);
+        render_translate(layout->renderer, arrow_p);
+        render_rotate(layout->renderer, angle);
+        draw_arrow_outline(layout->renderer, v2_zero(), arrow_size, 2, 0xFFFFFFFF);
+        
+        render_restore(layout->renderer);
+      }
+#endif
+    } break;
+  }
+}
+
+void ui_dropdown_menu_begin(ui_Layout *layout, String label, Style style) {
+  ui_Item *menu = ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
+  menu->id = (ui_Id){label.data};
+  ui_State *state = layout_get_state(layout, menu->id);
+  
+  
+  Style toggle_style = default_button_style();
+  toggle_style.bg_color = 0xFF333333;
+  toggle_style.flags |= ui_FOCUSABLE | ui_TOGGLE;
+  
+  if (ui_button(layout, label, toggle_style)) {
+    state->open = !state->open;
+  }
+  
+  Style dropdown_box = (Style){
+    .flags = ui_ALIGN_STRETCH|ui_IGNORE_LAYOUT,
+    .bg_color = 0xFF888888,
+    .layer = 1,
+    .min_width = percent(100),
+  };
+  if (!state->open) {
+    dropdown_box.flags |= ui_HIDDEN;
+  }
+  ui_flex_begin(layout, dropdown_box);
+}
+
+void ui_dropdown_menu_end(ui_Layout *layout) {
+  ui_flex_end(layout);
+  
+  ui_widget_dropdown_menu(layout, ui_Layout_Mode_CALC_AUTOS, layout->current_container);
+  ui_flex_end(layout);
+}
+
+
+void ui_input_text(ui_Layout *layout, String str, Style style) {
+  ui_Id id = (ui_Id){str.data};
+  assert(ui_id_valid(id));
+  
+  bool exists;
+  ui_State *state = layout_get_state_ex(layout, id, &exists);
+  if (!exists) {
+    state->panel.buffer = buffer_make_empty();
+    state->panel.buffer_view = (Buffer_View){
+      .buffer = &state->panel.buffer,
+      .is_single_line = true,
+    };
+    buffer_insert_string(&state->panel.buffer, const_string("test"));
+  }
+  state->panel.scroll = v2_zero();
+  ui_Item *item = ui_buffer(layout, &state->panel.buffer_view,
+                            &state->panel.scroll, style);
+  item->id = id;
+  item->buffer_view = &state->panel.buffer_view;
 }
 
 void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
@@ -466,7 +616,7 @@ bool ui_mouse_in_rect(ui_Layout *layout, Rect2 rect) {
   return result;
 }
 
-void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
+void ui_draw_item(ui_Layout *layout, ui_Item *item) {
   Rect2 rect = ui_get_rect(layout, item);
   
   u32 color = item->style.bg_color;
@@ -483,25 +633,20 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
   
   
   if (ui_id_valid(item->id) && ui_mouse_in_rect(layout, rect)) {
-    ui_Item *prev_hot = ui_get_item_by_id(layout, *next_hot);
+    ui_Item *prev_hot = ui_get_item_by_id(layout, layout->next_hot);
     if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
-      *next_hot = item->id;
+      layout->next_hot = item->id;
     }
   }
   
   
   switch (item->type) {
     case Item_Type_LABEL: {
-      V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
-      draw_string(layout->renderer, item->label, p, item->style.text_color);
+      ui_widget_label(layout, ui_Layout_Mode_DRAW, item);
     } break;
     
-    case Item_Type_PANEL: {
-      ui_State *state = layout_get_state(layout, item->id);
-      state->clicked = ui_is_clicked(layout, item->id);
-      if (state->clicked) {
-        layout->interactive = item->id;
-      }
+    case Item_Type_BUTTON: {
+      ui_widget_button(layout, ui_Layout_Mode_DRAW, item);
     } break;
     
     case Item_Type_BUFFER: {
@@ -518,103 +663,13 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item, ui_Id *next_hot) {
                        item->scroll);
     } break;
     
-    case Item_Type_BUTTON: {
-      ui_State *state = layout_get_state(layout, item->id);
-      state->clicked = ui_is_clicked(layout, item->id);
-      
-      V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
-      draw_string(layout->renderer, item->label, p, item->style.text_color);
-    } break;
-    
-    case Item_Type_MENU_TOGGLE_BUTTON: {
-      ui_State *state = layout_get_state(layout, item->id);
-      
-      u32 color = item->style.bg_color;
-      if (state->open || ui_ids_equal(layout->active, item->id)) {
-        color = item->style.active_bg_color;
-      }
-      draw_rect(layout->renderer, rect, color);
-      
-      os_Button left = layout->input->mouse.left;
-      
-      if (ui_is_clicked(layout, item->id)) {
-        state->open = !state->open;
-      }
-      
-      // NOTE(lvl5): if menu is in a menu_bar, close the menu
-      // that is not being hovered over
-      ui_Item *menu_bar = item->parent->parent;
-      if (menu_bar->type != Item_Type_MENU_BAR) {
-        menu_bar = null;
-      }
-      
-      if (!state->open && menu_bar && 
-          ui_ids_equal(layout->hot, item->id)) 
-      {
-        for (u32 menu_index = 0; 
-             menu_index < sb_count(menu_bar->children);
-             menu_index++) 
-        {
-          ui_Item *menu_wrapper = menu_bar->children + menu_index;
-          ui_Item *menu = menu_wrapper->children + 0;
-          Rect2 menu_rect = ui_get_rect(layout, menu);
-          
-          ui_State *other_state = layout_get_state(layout, menu->id);
-          if (other_state->open) {
-            other_state->open = false;
-            state->open = true;
-          }
-        }
-      }
-      
-      // NOTE(lvl5): close the menu if a button is clicked
-      ui_Item *dropdown = item->parent->children + 1;
-      ui_Item **descendents = ui_scratch_get_all_descendents(dropdown);
-      for (u32 i = 0; i < sb_count(descendents); i++) {
-        ui_Item *child = descendents[i];
-        if (child->type == Item_Type_BUTTON) {
-          ui_State *button_state = layout_get_state(layout, child->id);
-          if (button_state->clicked) {
-            state->open = false;
-            break;
-          }
-        }
-      }
-      
-      
-      V2 rect_size = rect2_get_size(rect);
-      V2 p = v2(rect.min.x + item->style.padding_left, rect.max.y);
-      
-      // TODO(lvl5): make the arrow part of the layout?
-      // NOTE(lvl5): draw the arrow
-      draw_string(layout->renderer, item->label, p, 0xFFFFFFFF);
-      {
-        V2 arrow_size = v2(6, 9);
-        V2 arrow_p = v2(rect.max.x - arrow_size.x*0.5f - item->style.padding_right,
-                        rect.min.y + rect_size.y*0.4f);
-        
-        
-        f32 angle = -0.25f;
-        if (item->parent->style.flags & ui_HORIZONTAL) {
-          angle = 0;
-        }
-        
-        if (state->open) {
-          angle += 0.5f;
-        }
-        
-        render_save(layout->renderer);
-        render_translate(layout->renderer, arrow_p);
-        render_rotate(layout->renderer, angle);
-        draw_arrow_outline(layout->renderer, v2_zero(), arrow_size, 2, 0xFFFFFFFF);
-        
-        render_restore(layout->renderer);
-      }
+    case Item_Type_DROPDOWN_MENU: {
+      ui_widget_dropdown_menu(layout, ui_Layout_Mode_DRAW, item);
     } break;
   }
   
   
-  if (ui_ids_equal(item->id, *next_hot) && ui_id_valid(item->id)) {
+  if (ui_ids_equal(item->id, layout->next_hot) && ui_id_valid(item->id)) {
     draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
   }
 }
@@ -708,10 +763,6 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   Rect2 window_rect = rect2_min_size(v2_mul(renderer->window_size, -0.5f),
                                      renderer->window_size);
   
-  ui_Id next_hot = layout->hot;
-  if (!v2_equal(layout->ignored_mouse_p, layout->input->mouse.p)) {
-    next_hot = INVALID_UI_ID;
-  }
   
   ui_Item *stack[128];
   ui_Item *post_stack[128];
@@ -733,17 +784,17 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
       }
       
       
-      ui_draw_item(layout, item, &next_hot);
+      ui_draw_item(layout, item);
       
       if (ui_ids_equal(layout->hot, item->id) &&
           ui_id_valid(item->id)) 
       {
         if (layout->input->keys[os_Keycode_ARROW_DOWN].pressed) {
           layout->ignored_mouse_p = layout->input->mouse.p;
-          next_hot = ui_get_next_focusable_item(item)->id;
+          layout->next_hot = ui_get_next_focusable_item(item)->id;
         } else if (layout->input->keys[os_Keycode_ARROW_UP].pressed) {
           layout->ignored_mouse_p = layout->input->mouse.p;
-          next_hot = ui_get_prev_focusable_item(item)->id;
+          layout->next_hot = ui_get_prev_focusable_item(item)->id;
         }
       }
       
@@ -766,39 +817,14 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
         }
       }
     } else {
-      switch (item->type) {
-        case Item_Type_DROPDOWN_MENU: {
-          // NOTE(lvl5): close the menu if clicked outside of it
-          ui_Item *menu_wrapper = item;
-          ui_Item *menu_button = menu_wrapper->children + 0;
-          ui_State *state = layout_get_state(layout, menu_button->id);
-          
-          if (state->open && layout->input->mouse.left.went_up) {
-            bool mouse_over_menu = false;
-            
-            ui_Item **descendents = ui_scratch_get_all_descendents(menu_wrapper);
-            for (u32 i = 0; i < sb_count(descendents); i++) {
-              ui_Item *child = descendents[i];
-              Rect2 child_rect = ui_get_rect(layout, child);
-              if (ui_mouse_in_rect(layout, child_rect)) {
-                mouse_over_menu = true;
-                break;
-              }
-            }
-            
-            if (!mouse_over_menu) {
-              state->open = false;
-            }
-          }
-        } break;
-      }
       if (item->style.layer) {
         render_restore(layout->renderer);
       }
     }
   }
   
-  layout->hot = next_hot;
+  layout->hot = layout->next_hot;
+  layout->active = layout->next_active;
 }
 
 void ui_menu_bar_begin(ui_Layout *layout, Style style) {
@@ -807,41 +833,33 @@ void ui_menu_bar_begin(ui_Layout *layout, Style style) {
 }
 
 void ui_menu_bar_end(ui_Layout *layout) {
-  ui_flex_end(layout);
-}
-
-void ui_dropdown_menu_begin(ui_Layout *layout, String label, Style style) {
-  ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
-  Style toggle_style = default_button_style();
-  toggle_style.bg_color = 0xFF333333;
-  toggle_style.flags |= ui_FOCUSABLE;
+  // NOTE(lvl5): if menu is in a menu_bar, close the menu
+  // that is not being hovered over
+  ui_Item *menu_bar = layout->current_container;
   
-  ui_Item *item = layout_get_item(layout, Item_Type_MENU_TOGGLE_BUTTON, 
-                                  toggle_style);
-  item->id = (ui_Id){label.data};
-  item->label = label;
-  ui_State *state = layout_get_state(layout, item->id);
-  
-  
-  V2 size = ui_compute_text_size(layout, label, item->style);
-  item->size.x = size.x + 16;
-  item->size.y = size.y;
-  
-  Style dropdown_box = (Style){
-    .flags = ui_ALIGN_STRETCH|ui_IGNORE_LAYOUT,
-    .bg_color = 0xFF888888,
-    .layer = 1,
-    .min_width = percent(100),
-  };
-  
-  if (!state->open) {
-    dropdown_box.flags |= ui_HIDDEN;
+  ui_State *open_menu_state = null;
+  ui_State *hot_menu_state = null;
+  for (u32 menu_index = 0; 
+       menu_index < sb_count(menu_bar->children);
+       menu_index++)
+  {
+    ui_Item *menu = menu_bar->children + menu_index;
+    
+    ui_State *state = layout_get_state(layout, menu->id);
+    if (ui_ids_equal(menu->id, layout->hot)) {
+      hot_menu_state = state;
+    }
+    if (state->open) {
+      open_menu_state = state;
+    }
   }
   
-  ui_flex_begin(layout, dropdown_box);
-}
-
-void ui_dropdown_menu_end(ui_Layout *layout) {
-  ui_flex_end(layout);
+  if (hot_menu_state && open_menu_state &&
+      hot_menu_state != open_menu_state) 
+  {
+    open_menu_state->open = false;
+    hot_menu_state->open = true;
+  }
+  
   ui_flex_end(layout);
 }
