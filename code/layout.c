@@ -16,6 +16,11 @@ bool ui_ids_equal(ui_Id a, ui_Id b) {
   return result;
 }
 
+bool ui_id_valid(ui_Id id) {
+  bool result = !ui_ids_equal(id, INVALID_UI_ID);
+  return result;
+}
+
 u32 hash_ui_id(ui_Id id) {
   u32 result = (id.bytes[0]) ^ (id.bytes[1] * 3) ^ (id.bytes[2] * 5) ^
     (id.bytes[3] * 7) ^ (id.bytes[4] * 31) ^ (id.bytes[5] * 13) ^ (id.bytes[6] * 17)
@@ -23,6 +28,33 @@ u32 hash_ui_id(ui_Id id) {
   return result;
 }
 
+bool ui_is_hot(ui_Layout *layout, ui_Id id) {
+  bool result = ui_id_valid(id) && ui_ids_equal(layout->hot, id);
+  return result;
+}
+
+bool ui_is_active(ui_Layout *layout, ui_Id id) {
+  bool result = ui_id_valid(id) && ui_ids_equal(layout->active, id);
+  return result;
+}
+
+bool ui_is_interactive(ui_Layout *layout, ui_Id id) {
+  bool result = ui_id_valid(id) && ui_ids_equal(layout->interactive, id);
+  return result;
+}
+
+
+void ui_set_hot(ui_Layout *layout, ui_Id id) {
+  layout->next_hot = id;
+}
+
+void ui_set_active(ui_Layout *layout, ui_Id id) {
+  layout->next_active = id;
+}
+
+void ui_set_interactive(ui_Layout *layout, ui_Id id) {
+  layout->next_interactive = id;
+}
 u32 get_ui_state_index(ui_Layout *layout, ui_Id id) {
   u32 hash = hash_ui_id(id);
   u32 result = 0;
@@ -45,12 +77,8 @@ u32 get_ui_state_index(ui_Layout *layout, ui_Id id) {
   return result;
 }
 
-bool ui_id_valid(ui_Id id) {
-  bool result = !ui_ids_equal(id, INVALID_UI_ID);
-  return result;
-}
-
 ui_State *layout_get_state_ex(ui_Layout *layout, ui_Id id, bool *exists) {
+  begin_profiler_function();
   ui_State *result = null;
   
   *exists = false;
@@ -65,6 +93,8 @@ ui_State *layout_get_state_ex(ui_Layout *layout, ui_Id id, bool *exists) {
       layout->occupancy[index] = true;
     }
   }
+  
+  end_profiler_function();
   return result;
 }
 
@@ -76,6 +106,8 @@ ui_State *layout_get_state(ui_Layout *layout, ui_Id id) {
 
 
 ui_Item *layout_get_item(ui_Layout *layout, Item_Type type, Style style) {
+  begin_profiler_function();
+  
   ui_Item *result = null;
   if (layout->current_container) {
     u32 index = sb_count(layout->current_container->children);
@@ -104,7 +136,7 @@ ui_Item *layout_get_item(ui_Layout *layout, Item_Type type, Style style) {
     result->min_size.y = style.min_height.value;
   }
   
-  
+  end_profiler_function();
   return result;
 }
 
@@ -129,6 +161,8 @@ void ui_flex_begin(ui_Layout *layout, Style style) {
 }
 
 V2 ui_flex_calc_auto_dim(ui_Item *item, i32 main_axis) {
+  begin_profiler_function();
+  
   i32 other_axis = !main_axis;
   
   V2 result = v2_zero();
@@ -146,10 +180,13 @@ V2 ui_flex_calc_auto_dim(ui_Item *item, i32 main_axis) {
     }
   }
   
+  end_profiler_function();
   return result;
 }
 
 void ui_flex_end(ui_Layout *layout) {
+  begin_profiler_function();
+  
   ui_Item *item = layout->current_container;
   if (layout->current_container->parent) {
     layout->current_container = layout->current_container->parent;
@@ -166,6 +203,8 @@ void ui_flex_end(ui_Layout *layout) {
   if (item->style.height.value == ui_SIZE_AUTO) {
     item->size.y = size.y;
   }
+  
+  end_profiler_function();
 }
 
 Style default_button_style() {
@@ -181,6 +220,8 @@ Style default_button_style() {
 
 
 V2 ui_compute_text_size(ui_Layout *layout, String str, Style style) {
+  begin_profiler_function();
+  
   V2 result = v2(style.width.value, style.height.value);
   
   if (style.height.value == ui_SIZE_AUTO) {
@@ -194,26 +235,31 @@ V2 ui_compute_text_size(ui_Layout *layout, String str, Style style) {
       style.padding_right + style.padding_left;
   }
   
+  end_profiler_function();
   return result;
 }
 
 
 bool ui_is_clicked(ui_Layout *layout, ui_Id id) {
+  begin_profiler_function();
+  
   bool result = false;
   
   os_Button left = layout->input->mouse.left;
-  if (ui_ids_equal(layout->active, id)) {
+  if (ui_is_active(layout, id)) {
     if (left.went_up) {
-      if (ui_ids_equal(layout->hot, id)) {
+      if (ui_is_hot(layout, id)) {
         result = true;
       }
-      layout->next_active = INVALID_UI_ID;
+      ui_set_active(layout, INVALID_UI_ID);
     }
-  } else if (ui_ids_equal(layout->hot, id)) {
+  } else if (ui_is_hot(layout, id)) {
     if (left.went_down) {
-      layout->next_active = id;
+      ui_set_active(layout, id);
     }
   }
+  
+  end_profiler_function();
   return result;
 }
 
@@ -228,6 +274,8 @@ Rect2 ui_get_rect(ui_Layout *layout, ui_Item *item) {
 
 
 void ui_widget_label(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
+  begin_profiler_function();
+  
   switch (mode) {
     case ui_Layout_Mode_CALC_AUTOS: {
       V2 size = ui_compute_text_size(layout, item->label, item->style);
@@ -246,17 +294,22 @@ void ui_widget_label(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
       draw_string(layout->renderer, item->label, p, item->style.text_color);
     } break;
   }
+  
+  end_profiler_function();
 }
 
 bool ui_widget_button(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
+  begin_profiler_function();
+  bool result = false;
+  
   switch (mode) {
     case ui_Layout_Mode_INTERACT: {
       item->style.flags |= ui_FOCUSABLE;
       ui_Id id = (ui_Id){item->label.data};
       item->id = id;
       
-      bool result = ui_is_clicked(layout, id);
-      return result;
+      result = ui_is_clicked(layout, id);
+      break;
     } break;
     
     case ui_Layout_Mode_CALC_AUTOS: {
@@ -277,7 +330,8 @@ bool ui_widget_button(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
     } break;
   }
   
-  return false;
+  end_profiler_function();
+  return result;
 }
 
 
@@ -304,7 +358,23 @@ bool ui_button(ui_Layout *layout, String label, Style style) {
   return result;
 }
 
+void ui_handle_buffer_input(ui_Layout *layout, Buffer *buffer) {
+  begin_profiler_function();
+  
+  os_Input *input = layout->input;
+  if (!input->ctrl && !input->alt) {
+    if (input->char_count > 0) {
+      String str = make_string(input->chars, input->char_count);
+      buffer_input_string(buffer, str);
+    }
+  }
+  
+  end_profiler_function();
+}
+
 bool ui_panel(ui_Layout *layout, Panel *panel, Style style) {
+  begin_profiler_function();
+  
   ui_Id id = (ui_Id){panel};
   
   ui_Item *item = ui_flex_begin_ex(layout, style, Item_Type_PANEL);
@@ -333,24 +403,22 @@ bool ui_panel(ui_Layout *layout, Panel *panel, Style style) {
   assert(style.height.value != ui_SIZE_AUTO);
   
   if (ui_ids_equal(layout->interactive, id)) {
-    os_Input *input = layout->input;
-    if (!input->ctrl && !input->alt) {
-      if (input->char_count > 0) {
-        String str = make_string(input->chars, input->char_count);
-        buffer_input_string(panel->buffer_view.buffer, str);
-      }
-    }
+    ui_handle_buffer_input(layout, panel->buffer_view.buffer);
   }
   
   bool result = ui_is_clicked(layout, id);
   if (result) {
-    layout->interactive = id;
+    ui_set_interactive(layout, id);
   }
+  
+  end_profiler_function();
   return result;
 }
 
 
 ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
+  begin_profiler_function();
+  
   push_scratch_context();
   ui_Item **result = sb_new(ui_Item *, 64);
   pop_context();
@@ -372,11 +440,15 @@ ui_Item **ui_scratch_get_all_descendents(ui_Item *item) {
       sb_push(result, cur);
     }
   }
+  
+  end_profiler_function();
   return result;
 }
 
 
 void ui_widget_dropdown_menu(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *item) {
+  begin_profiler_function();
+  
   switch (mode) {
     case ui_Layout_Mode_CALC_AUTOS: {
       Rect2 rect = ui_get_rect(layout, item->children + 0);
@@ -398,12 +470,11 @@ void ui_widget_dropdown_menu(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *it
       }
       
       // NOTE(lvl5): close the menu if clicked outside of it
-      bool clicked_outside = true;
-      if (layout->input->mouse.left.went_down) {
+      bool clicked_outside = !ui_is_hot(layout, item->id);
+      if (layout->input->mouse.left.went_up) {
         for (u32 i = 0; i < sb_count(descendents); i++) {
           ui_Item *child = descendents[i];
-          if (ui_ids_equal(child->id, layout->hot) && ui_id_valid(layout->hot))
-          {
+          if (ui_is_hot(layout, child->id)) {
             clicked_outside = false;
             break;
           }
@@ -444,9 +515,13 @@ void ui_widget_dropdown_menu(ui_Layout *layout, ui_Layout_Mode mode, ui_Item *it
 #endif
     } break;
   }
+  
+  end_profiler_function();
 }
 
 void ui_dropdown_menu_begin(ui_Layout *layout, String label, Style style) {
+  begin_profiler_function();
+  
   ui_Item *menu = ui_flex_begin_ex(layout, style, Item_Type_DROPDOWN_MENU);
   menu->id = (ui_Id){label.data};
   ui_State *state = layout_get_state(layout, menu->id);
@@ -470,6 +545,8 @@ void ui_dropdown_menu_begin(ui_Layout *layout, String label, Style style) {
     dropdown_box.flags |= ui_HIDDEN;
   }
   ui_flex_begin(layout, dropdown_box);
+  
+  end_profiler_function();
 }
 
 void ui_dropdown_menu_end(ui_Layout *layout) {
@@ -481,8 +558,11 @@ void ui_dropdown_menu_end(ui_Layout *layout) {
 
 
 void ui_input_text(ui_Layout *layout, String str, Style style) {
+  begin_profiler_function();
+  
   ui_Id id = (ui_Id){str.data};
   assert(ui_id_valid(id));
+  
   
   bool exists;
   ui_State *state = layout_get_state_ex(layout, id, &exists);
@@ -493,15 +573,31 @@ void ui_input_text(ui_Layout *layout, String str, Style style) {
       .is_single_line = true,
     };
     buffer_insert_string(&state->panel.buffer, const_string("test"));
+    //layout->interactive = id;
   }
   state->panel.scroll = v2_zero();
+  
+  style.flags |= ui_FOCUSABLE;
   ui_Item *item = ui_buffer(layout, &state->panel.buffer_view,
                             &state->panel.scroll, style);
   item->id = id;
   item->buffer_view = &state->panel.buffer_view;
+  
+  
+  if (ui_is_clicked(layout, id)) {
+    layout->interactive = id;
+  }
+  
+  if (ui_ids_equal(layout->interactive, id)) {
+    ui_handle_buffer_input(layout, item->buffer_view->buffer);
+  }
+  
+  end_profiler_function();
 }
 
 void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
+  begin_profiler_function();
+  
   i32 other_axis = !main_axis;
   
   f32 fixed_size = 0;
@@ -579,9 +675,13 @@ void ui_flex_set_stretchy_children(ui_Item *item, i32 main_axis) {
       p.e[main_axis] -= dim;
     }
   }
+  
+  end_profiler_function();
 }
 
 ui_Item *ui_get_item_by_id(ui_Layout *layout, ui_Id id) {
+  begin_profiler_function();
+  
   ui_Item *root = layout->current_container;
   while (root->parent) root = root->parent;
   
@@ -594,6 +694,8 @@ ui_Item *ui_get_item_by_id(ui_Layout *layout, ui_Id id) {
       break;
     }
   }
+  
+  end_profiler_function();
   return result;
 }
 
@@ -617,10 +719,12 @@ bool ui_mouse_in_rect(ui_Layout *layout, Rect2 rect) {
 }
 
 void ui_draw_item(ui_Layout *layout, ui_Item *item) {
+  begin_profiler_function();
+  
   Rect2 rect = ui_get_rect(layout, item);
   
   u32 color = item->style.bg_color;
-  if (ui_id_valid(item->id) && ui_ids_equal(layout->active, item->id)) {
+  if (ui_is_active(layout, item->id)) {
     color = item->style.active_bg_color;
   }
   draw_rect(layout->renderer, rect, color);
@@ -635,10 +739,9 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item) {
   if (ui_id_valid(item->id) && ui_mouse_in_rect(layout, rect)) {
     ui_Item *prev_hot = ui_get_item_by_id(layout, layout->next_hot);
     if (ui_get_layer(item) >= ui_get_layer(prev_hot)) {
-      layout->next_hot = item->id;
+      ui_set_hot(layout, item->id);
     }
   }
-  
   
   switch (item->type) {
     case Item_Type_LABEL: {
@@ -669,9 +772,11 @@ void ui_draw_item(ui_Layout *layout, ui_Item *item) {
   }
   
   
-  if (ui_ids_equal(item->id, layout->next_hot) && ui_id_valid(item->id)) {
+  if (ui_is_hot(layout, item->id)) {
     draw_rect_outline(layout->renderer, rect, 2, 0xFFFFFFFF);
   }
+  
+  end_profiler_function();
 }
 
 u32 ui_get_self_index(ui_Item *item) {
@@ -753,7 +858,22 @@ ui_Item *ui_get_next_focusable_item(ui_Item *item) {
   return result;
 }
 
-void traverse_layout(ui_Layout *layout, ui_Item *root) {
+void ui_begin(ui_Layout *layout) {
+  V2 ws = layout->renderer->window_size;
+  layout->current_container = null;
+  layout->p = v2(-ws.x*0.5f, ws.y*0.5f);
+  
+  if (v2_equal(layout->ignored_mouse_p, layout->input->mouse.p)) {
+    layout->next_hot = layout->hot;
+  } else {
+    layout->next_hot = INVALID_UI_ID;
+  }
+}
+
+
+void ui_end(ui_Layout *layout) {
+  begin_profiler_function();
+  
   gl_Funcs gl = global_os.gl;
   
   gl.ClearColor(0, 0, 0, 1);
@@ -763,11 +883,12 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   Rect2 window_rect = rect2_min_size(v2_mul(renderer->window_size, -0.5f),
                                      renderer->window_size);
   
+  assert(layout->current_container->parent == null);
   
   ui_Item *stack[128];
   ui_Item *post_stack[128];
   i32 stack_count = 0;
-  stack[stack_count++] = root;
+  stack[stack_count++] = layout->current_container;
   
   
   while (stack_count) {
@@ -786,15 +907,15 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
       
       ui_draw_item(layout, item);
       
-      if (ui_ids_equal(layout->hot, item->id) &&
+      if (ui_is_hot(layout, item->id) &&
           ui_id_valid(item->id)) 
       {
         if (layout->input->keys[os_Keycode_ARROW_DOWN].pressed) {
           layout->ignored_mouse_p = layout->input->mouse.p;
-          layout->next_hot = ui_get_next_focusable_item(item)->id;
+          ui_set_hot(layout, ui_get_next_focusable_item(item)->id);
         } else if (layout->input->keys[os_Keycode_ARROW_UP].pressed) {
           layout->ignored_mouse_p = layout->input->mouse.p;
-          layout->next_hot = ui_get_prev_focusable_item(item)->id;
+          ui_set_hot(layout, ui_get_prev_focusable_item(item)->id);
         }
       }
       
@@ -825,6 +946,9 @@ void traverse_layout(ui_Layout *layout, ui_Item *root) {
   
   layout->hot = layout->next_hot;
   layout->active = layout->next_active;
+  layout->interactive = layout->next_interactive;
+  
+  end_profiler_function();
 }
 
 void ui_menu_bar_begin(ui_Layout *layout, Style style) {
@@ -833,7 +957,9 @@ void ui_menu_bar_begin(ui_Layout *layout, Style style) {
 }
 
 void ui_menu_bar_end(ui_Layout *layout) {
-  // NOTE(lvl5): if menu is in a menu_bar, close the menu
+  begin_profiler_function();
+  
+  // NOTE(lvl5): close the menu
   // that is not being hovered over
   ui_Item *menu_bar = layout->current_container;
   
@@ -846,7 +972,7 @@ void ui_menu_bar_end(ui_Layout *layout) {
     ui_Item *menu = menu_bar->children + menu_index;
     
     ui_State *state = layout_get_state(layout, menu->id);
-    if (ui_ids_equal(menu->id, layout->hot)) {
+    if (ui_is_hot(layout, menu->id)) {
       hot_menu_state = state;
     }
     if (state->open) {
@@ -862,4 +988,6 @@ void ui_menu_bar_end(ui_Layout *layout) {
   }
   
   ui_flex_end(layout);
+  
+  end_profiler_function();
 }

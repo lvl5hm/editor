@@ -549,6 +549,11 @@ LRESULT CALLBACK os_window_proc(HWND   window,
       os_push_event((os_Event){ .type = os_Event_Type_CLOSE });
     } break;
     
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS: {
+      os_push_event((os_Event) { .type = os_Event_Type_FOCUS });
+    } break;
+    
     default: result = DefWindowProc(window, message, w_param, l_param);
   }
   

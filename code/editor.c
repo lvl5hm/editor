@@ -115,12 +115,11 @@ void execute_command(Editor *editor, Renderer *renderer, Command command) {
       buffer_indent(buffer);
     } break;
     case Command_OPEN_FILE_DIALOG: {
-      editor->file_dialog_open = true;
-      
       Context *cur = get_context();
       Context system_ctx = *cur;
       system_ctx.allocator = system_allocator;
       push_context(system_ctx);
+      
       editor->files = global_os.get_file_names(editor->path);
       
       pop_context();
@@ -143,7 +142,6 @@ void execute_command(Editor *editor, Renderer *renderer, Command command) {
           .buffer = buffer,
         };
       }
-      editor->file_dialog_open = false;
     } break;
   }
   end_profiler_function();
@@ -398,6 +396,12 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   os_Event event;
   while (os.pop_event(&event)) {
     switch (event.type) {
+      case os_Event_Type_FOCUS: {
+        input->shift = false;
+        input->ctrl = false;
+        input->alt = false;
+      } break;
+      
       case os_Event_Type_CLOSE: {
         memory->running = false;
       } break;
@@ -436,19 +440,10 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   renderer_begin_render(renderer);
   
   V2 ws = renderer->window_size;
-  
   render_clip(renderer, rect2_min_size(v2(-ws.x*0.5f, -ws.y*0.5f), ws));
   
   ui_Layout *l = &editor->layout;
-  l->current_container = null;
-  l->p = v2(-ws.x*0.5f, ws.y*0.5f);
-  
-  if (v2_equal(l->ignored_mouse_p, l->input->mouse.p)) {
-    l->next_hot = l->hot;
-  } else {
-    l->next_hot = INVALID_UI_ID;
-  }
-  
+  ui_begin(l);
   
   ui_flex_begin(l, (Style){ 
                 .flags = ui_ALIGN_CENTER,
@@ -499,7 +494,12 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     
     
     // NOTE(lvl5): file lister
-    if (editor->file_dialog_open) {
+    if (editor->files) {
+      if (!editor->file_dialog_open) {
+        editor->file_dialog_open = true;
+        
+      }
+      
       ui_flex_begin(l, (Style){
                     .flags = ui_IGNORE_LAYOUT|ui_ALIGN_STRETCH,
                     .layer = 2,
@@ -548,7 +548,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
     } ui_flex_end(l);
   } ui_flex_end(l);
   
-  traverse_layout(l, l->current_container);
+  ui_end(l);
   
   renderer_end_render(gl, renderer);
   
@@ -561,8 +561,7 @@ extern void editor_update(Os os, Editor_Memory *memory, os_Input *input) {
   
   
   
-  static bool true_once = false;
-  
+  static bool true_once = true;
   if (true_once) {
     true_once = false;
     FILE *file;

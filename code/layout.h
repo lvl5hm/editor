@@ -158,6 +158,7 @@ typedef struct {
   
   ui_Id next_hot;
   ui_Id next_active;
+  ui_Id next_interactive;
   
   V2 ignored_mouse_p;
 } ui_Layout;

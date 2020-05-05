@@ -48,6 +48,7 @@ typedef enum {
   os_Event_Type_CLOSE = 0x100,
   os_Event_Type_RESIZE = 0x101,
   os_Event_Type_BUTTON = 0x102,
+  os_Event_Type_FOCUS = 0x103,
 } os_Event_Type;
 
 typedef void *os_Window;
